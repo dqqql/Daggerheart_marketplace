@@ -443,7 +443,6 @@
       position: relative;
       aspect-ratio: 3 / 4;
       background: var(--bg-deep);
-      overflow: hidden;
       border-radius: var(--radius-card) var(--radius-card) 0 0;
     }
     .card-cover img {
@@ -451,6 +450,7 @@
       height: 100%;
       object-fit: cover;
       display: block;
+      border-radius: var(--radius-card) var(--radius-card) 0 0;
       transition: transform 1.2s ease, opacity 0.3s ease;
     }
     .card:hover .card-cover img { transform: scale(1.04); }
@@ -582,8 +582,9 @@
     .card-summary-tooltip {
       position: absolute;
       bottom: 8px;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 8px;
+      right: 8px;
+      transform: none;
       background: var(--bg-elevated);
       border: 1px solid var(--gold-dim);
       border-radius: var(--radius-md);
@@ -591,13 +592,11 @@
       font-size: 12px;
       color: var(--text-primary);
       line-height: 1.5;
-      max-width: 260px;
-      width: max-content;
       box-shadow: 0 4px 20px rgba(0,0,0,0.6);
       opacity: 0;
       pointer-events: none;
       transition: all var(--transition-base);
-      z-index: 20;
+      z-index: 30;
       text-align: left;
     }
     .card-summary-tooltip::after {
@@ -609,7 +608,7 @@
       border: 6px solid transparent;
       border-bottom-color: var(--gold-dim);
     }
-    .card:hover .card-summary-tooltip { opacity: 1; transform: translateX(-50%); }
+    .card:hover .card-summary-tooltip { opacity: 1; }
 
     /* ══════════════════════════════════════════
        Tag Popup Modal
