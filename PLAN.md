@@ -88,7 +88,9 @@
 - 后续可扩展为更细的推荐强度
 - 条目删除时，对应服务器封面文件允许物理删除
 
-### 2.7 玩家点赞系统
+### 2.7 玩家点赞系统 ✅ 已实现
+
+> **实现日期**: 2026-06-03
 
 - 纯点赞，不做踩
 - 不做评论
@@ -97,30 +99,66 @@
 - 前端根据当前 IP 的点赞记录显示"已赞/点赞"两种状态
 - 点赞计数影响首页排序，与管理员推荐值加权汇总
 - 管理员推荐值与玩家点赞分开维护，不互相替代
-- 点赞按钮放在卡片封面下方
+- 点赞按钮放在卡片标题/作者右侧
 - 首版以 IP 为去重单位，不引入复杂防刷票机制
-- 点赞数可选设阈值：达到阈值后才在卡片上显示点赞数
+- 点赞数 > 0 时在按钮中显示计数
 
-### 2.8 首页推荐区（Spotlight）
+**实现清单**:
+
+| 层级 | 位置 | 说明 |
+|------|------|------|
+| 后端 API | `POST /api/public/like/<entry_id>` | `server/app.py:93` — toggle 点赞，返回 `{liked, likeCount}` |
+| 后端 API | `GET /api/public/likes` | `server/app.py:87` — 返回当前 IP 已点赞条目 ID 列表 `{likedEntryIds}` |
+| 后端函数 | `get_client_ip_hash()` | `server/app.py:358` — 读取 `X-Forwarded-For` 或 `remote_addr`，SHA-256 哈希取前 16 位 |
+| 后端函数 | `normalize_entry()` | `server/app.py:398` — 新增 `likeCount: 0` 和 `likedBy: []` 字段 |
+| 后端函数 | `load_entries()` | `server/app.py:338` — 加载时自动补全缺失的 `likeCount` / `likedBy` 字段 |
+| 数据模型 | `likedBy` 字段 | 每个条目的 IP 哈希数组，直接存储在 `entries.json` 中（不自建 `likes.json`） |
+| 前端状态 | `state.likedEntries` | `frontend/index.html:1249` — 当前 IP 已点赞的条目 ID 数组 |
+| 前端函数 | `loadLikes()` | `frontend/index.html:1297` — 初始化时调用 `GET /api/public/likes` |
+| 前端函数 | `toggleLike(entryId, btnEl)` | `frontend/index.html:1307` — 发送 POST，就地更新 UI |
+| 前端函数 | `updateCardLikeUI()` | `frontend/index.html:1337` — 更新心形图标和计数，无需重渲染卡片 |
+| 前端函数 | `renderCard()` | `frontend/index.html:1418` — 卡片模板第 1434-1438 行嵌入点赞按钮 |
+| 前端 CSS | `.card-likes` | `frontend/index.html:611` — 点赞按钮容器（flex, justify-end） |
+| 前端 CSS | `.card-like-btn` | `frontend/index.html:618` — 按钮样式；`.liked` 变体为 ♥ 实心 + 深红色 |
+| 前端 CSS | `.card-like-icon` / `.card-like-count` | `frontend/index.html:642` — 心形图标 15px / 计数 11px |
+| 前端事件 | 卡片 click 委托 | `frontend/index.html:1545` — 通过 `closest('[data-action="like"]')` 识别点赞点击并 `stopPropagation` |
+| 测试 | `test_like_toggle_*` | `server/tests/test_app.py:170-207` — 点赞/取消点赞完整往返测试 |
+| 测试 | `test_delete_entry_cleans_up_likes` | `server/tests/test_app.py:213-236` — 删除条目后 bootstrap 中不再出现 |
+| 测试 | `test_public_bootstrap_includes_like_count` | `server/tests/test_app.py:238-259` — 验证 `likeCount` 和 `likedBy` 字段存在 |
+
+### 2.8 首页推荐区（Spotlight） ✅ 已实现
+
+> **实现日期**: 2026-06-03
 
 首页顶部设两个并列推荐区，各自展示 4 个资源：
 
 - **编辑推荐**：按 `recommendValue` 降序取前 4（值相同时按更新时间降序）
-- **大众点评**：按 `likeCount` 降序取前 4，且 `likeCount` 必须大于阈值（首版阈值建议 ≥ 2）
+- **社群匕选**：按 `likeCount` 降序取前 4，且 `likeCount` 必须大于阈值（阈值 ≥ 2）
 
 两个推荐区独立于下方完整列表。
+
+**实现清单**:
+
+| 层级 | 位置 | 说明 |
+|------|------|------|
+| 前端变量 | `editorPick` | `frontend/index.html:1522` — `state.entries` 中 `recommendValue > 0` 者按值降序取前 4 |
+| 前端变量 | `popularPick` | `frontend/index.html:1531` — `state.entries` 中 `likeCount >= 2` 者按点赞数降序取前 4 |
+| 前端数组 | `sections` | `frontend/index.html:1539` — 分区顺序：最新收录 → 编辑推荐 → 社群匕选 → 战役框架 → 模组 → 玩家资源 → GM资源 → 扩展规则 → 其他 |
+| 前端导航 | `section-nav` | 自动从 `sections` 生成，新增 `推荐` / `热榜` 短标签 |
+| 排序函数 | `byScore(arr)` | `frontend/index.html:1502` — 加权排序 `recommendValue * 10 + likeCount` 降序，同分按 `updatedAt` 降序；应用于除"最新收录"外的所有分区 |
 
 ## 3. 暂缓决策
 
 以下内容本轮不定死，只预留扩展空间：
 
-- 首页默认排序规则（玩家点赞引入后需重新评估）
-- 首页是否按内容标签分区
+- ~~首页默认排序规则（玩家点赞引入后需重新评估）~~ → 已实现：加权值 `recommendValue * 10 + likeCount` 降序
+- ~~首页推荐区（Spotlight）~~ → 已实现：编辑推荐 + 社群匕选各 4 个
+- ~~首页是否按内容标签分区~~ → 已实现
 - `frontend/admin/` 的移动端适配
 - 手机横屏与平板的专项适配
 - 推荐值是否演化为更细粒度评分
 - 标签同义词治理
-- 大众点评推荐区的点赞阈值设为多少
+- 社群匕选推荐区的点赞阈值（当前 ≥ 2）
 
 ## 4. 首页交互方案
 
@@ -239,9 +277,10 @@
       "contentTags": ["模组", "敌人"],
       "flavorTags": ["西幻", "黑暗"],
       "recommendValue": 1,
-      "likeCount": 0,
+      "likeCount": 3,
+      "likedBy": ["a1b2c3d4e5f6g7h8", "i9j0k1l2m3n4o5p6"],
       "summary": "适合短团的边境探索模组。",
-      "coverPath": "/marketplace/data/covers/dhm_001.webp",
+      "coverPath": "/marketplace/covers/dhm_001.webp",
       "targetUrl": "https://example.com/feishu-link",
       "createdAt": "2026-06-02T10:00:00+08:00",
       "updatedAt": "2026-06-02T10:00:00+08:00"
@@ -258,22 +297,14 @@
 - `contentTags`：内容标签数组，至少一个
 - `flavorTags`：风味标签数组，可空
 - `recommendValue`：管理员数值字段，首版使用 `0/1`
-- `likeCount`：玩家点赞数，非负整数，由服务端维护
+- `likeCount`：玩家点赞数，非负整数，由服务端自动维护（= `len(likedBy)`）
+- `likedBy`：已点赞的 IP 哈希数组，如 `["abc123...", "def456..."]`。直接存储在条目中，无独立 `likes.json`。
 - `summary`：简介，可空
 - `coverPath`：封面访问路径
 - `targetUrl`：点击卡片后的外链
 - `createdAt` / `updatedAt`：用于后续排序或审计
 
-点赞记录独立存储于 `data/runtime/likes.json`，结构中条目 ID 映射到已点赞 IP 集合：
-
-```json
-{
-  "dhm_001": ["<hashed_ip_1>", "<hashed_ip_2>"],
-  "dhm_002": ["<hashed_ip_3>"]
-}
-```
-
-条目被删除时，同步清理 `likes.json` 中对应记录。
+> **2026-06-03 修正**：点赞记录不再使用独立的 `data/runtime/likes.json`，改为直接存入条目的 `likedBy` 字段。点赞数据随条目增删自动保持一致，无需额外清理逻辑。
 
 ## 7. 推荐目录结构
 
@@ -294,11 +325,14 @@
 │   ├── requirements.txt
 │   └── tests/
 │       └── test_app.py
+├── scripts/
+│   └── check_python_syntax.py
 └── data/
+    ├── imports/                     # 外部导入的图片 + 备份 JSON
     └── runtime/
-        ├── covers/
-        ├── secrets/
-        └── likes.json
+        ├── entries.json             # 运行期条目（含 likedBy）
+        ├── covers/                  # 运行期封面
+        └── secrets/                 # 口令与会话密钥
 ```
 
 说明：
@@ -318,7 +352,7 @@ Python 服务只负责最小必要功能：
 - 保存条目数据
 - 上传封面文件
 - 删除条目时同步删除服务器封面文件
-- 玩家点赞计数与 IP 去重
+- 玩家点赞计数与 IP 去重（`likedBy` 存储在条目 JSON 中，`likeCount = len(likedBy)`）
 
 Python 服务不负责：
 
@@ -330,100 +364,48 @@ Python 服务不负责：
 
 ## 9. 分阶段实施步骤
 
-### 阶段 1：落规则与项目骨架
+### 阶段 1：落规则与项目骨架 ✅ 已完成
+
+### 阶段 2：定义 JSON schema 与样例数据 ✅ 已完成
+
+### 阶段 3：实现首页桌面版 ✅ 已完成
+
+### 阶段 4：实现搜索与标签筛选 ✅ 已完成
+
+### 阶段 5：实现 admin 登录与会话 ✅ 已完成
+
+### 阶段 6：实现条目增改删与封面上传 ✅ 已完成
+
+### 阶段 7：接入 VPS 部署 ✅ 已完成
+
+### 阶段 8：玩家点赞系统 ✅ 已完成 (2026-06-03)
 
 目标：
 
-- 补齐项目自己的 `AGENTS.md`
-- 固定目录结构
-- 固定数据文件位置与命名约定
+- 实现纯点赞/取消点赞 toggle
+- IP 哈希去重，无需登录
+- 前端显示"已赞/点赞"状态
+- 点赞计数写入 `entries.json` 的 `likeCount` / `likedBy` 字段
+- 排序加权值 `recommendValue * 10 + likeCount`
 
 验证：
 
-- 根目录规则文件完整
-- 目录结构与计划一致
+- 后端 3 个新测试（`test_like_toggle_*`、`test_delete_entry_cleans_up_likes`、`test_public_bootstrap_includes_like_count`）全部通过
+- 前端点击心形按钮可 toggle 状态，计数实时更新
 
-### 阶段 2：定义 JSON schema 与样例数据
+### 阶段 9：首页推荐区（Spotlight） ✅ 已完成 (2026-06-03)
 
 目标：
 
-- 建立运行期 `entries.json` 骨架
-- 明确 schema，并用测试数据覆盖关键情况
+- 编辑推荐：`recommendValue > 0` 降序取前 4
+- 社群匕选：`likeCount >= 2` 降序取前 4
+- 分区重排 + 导航栏同步更新
 
 验证：
 
-- 能覆盖：
-  - 空风味标签
-  - 空简介
-  - `recommendValue` 为 `0/1`
-  - 多内容标签
-
-### 阶段 3：实现首页桌面版
-
-目标：
-
-- 完成首页基础视觉
-- 完成卡片渲染
-- 完成 hover 简介
-
-验证：
-
-- 静态页面可直接读取 JSON 并展示卡片
-
-### 阶段 4：实现搜索与标签筛选
-
-目标：
-
-- 搜索框生效
-- 自动汇总两套标签
-- 显示标签计数
-- 工具栏显示头部标签
-- 弹窗显示全部标签
-- 实现组内 `OR`、组间 `AND`
-
-验证：
-
-- 手工构造多组数据后，筛选结果符合预期
-
-### 阶段 5：实现 admin 登录与会话
-
-目标：
-
-- 口令登录
-- 服务端会话
-- 未登录不可写
-
-验证：
-
-- 未登录调用写接口应失败
-- 登录后可继续管理操作
-
-### 阶段 6：实现条目增改删与封面上传
-
-目标：
-
-- 条目新增
-- 条目编辑
-- 条目删除
-- 封面上传
-
-验证：
-
-- 新增条目后首页可见
-- 编辑后数据与页面同步更新
-- 删除后 JSON 与封面文件同步移除
-
-### 阶段 7：接入 VPS 部署
-
-目标：
-
-- 将 `/marketplace/` 接入现有站点
-- 让静态页面与 Python 服务在 Nginx 下协同工作
-
-验证：
-
-- 能通过正式 URL 访问首页
-- admin 可登录并保存数据
+- 编辑推荐区出现在最新收录下方
+- 社群匕选区在编辑推荐下方
+- 点赞后达到 2 个以上时社群匕选区出现该条目
 
 ## 10. 验证策略
 
@@ -464,16 +446,12 @@ Python 服务不负责：
 - 首版按低频单管理员维护场景设计
 - 保存时尽量采用原子写入
 
-### 11.3 首页编排未定
+### 11.3 首页编排未定 → 已解决 (2026-06-03)
 
-风险：
+风险已消除：
 
-- 第一版视觉结构可能还要二次调整
-
-控制：
-
-- 先保证筛选和卡片系统独立
-- 排序与分区晚一点再定，不污染当前数据模型
+- 分区顺序已固定：最新收录 → 编辑推荐 → 社群匕选 → 战役框架 → 模组 → 玩家资源 → GM资源 → 扩展规则 → 其他
+- 排序规则已确定：最新收录按 `updatedAt`，其余按 `recommendValue * 10 + likeCount` 加权
 
 ### 11.4 IP 去重的局限性
 
@@ -487,11 +465,17 @@ Python 服务不负责：
 - 首版不做复杂防刷票
 - 发现明显刷票后再改算法（如引入衰减、权重修正）
 
-## 12. 下一步
+## 12. 当前状态 (2026-06-03)
 
-按本计划，最合理的下一步是：
+已实现：
 
-1. 先补项目级 `AGENTS.md`
-2. 建立推荐目录结构
-3. 定义 `entries.json` 与样例数据
-4. 开始首页桌面版实现
+1. ✅ 项目骨架与运行环境（Flask + Nginx + systemd）
+2. ✅ 首页桌面版（卡片渲染、hover 简介、标签筛选、搜索）
+3. ✅ 手机竖屏适配（360px+）
+4. ✅ 管理入口（登录/会话、条目增改删、封面上传裁剪）
+5. ✅ 玩家点赞系统（IP 哈希 toggle、`likedBy` 字段、加权排序）
+6. ✅ 首页推荐区（编辑推荐 + 社群匕选）
+
+待实现：
+
+- 无

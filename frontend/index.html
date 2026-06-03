@@ -561,6 +561,16 @@
     .card-body {
       padding: 14px 16px 16px;
     }
+    .card-body-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .card-info {
+      flex: 1;
+      min-width: 0;
+    }
     .card-title {
       font-family: var(--font-heading);
       font-size: 15px;
@@ -610,6 +620,57 @@
       background: var(--tag-flavor-bg);
       color: var(--text-secondary);
       border: 1px solid var(--tag-flavor-border);
+    }
+
+    /* 点赞按钮 */
+    .card-like {
+      display: flex;
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+    .card-like-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: var(--font-body);
+      font-size: 12px;
+      padding: 4px 10px;
+      min-width: 48px;
+      transition: all var(--transition-fast);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .card-like-btn:hover {
+      color: var(--crimson-light);
+      border-color: rgba(160, 68, 68, 0.3);
+      background: rgba(160, 68, 68, 0.06);
+    }
+    .card-like-btn.liked {
+      color: var(--crimson-light);
+    }
+    .card-like-btn.liked:hover {
+      color: #d06060;
+      border-color: rgba(160, 68, 68, 0.5);
+    }
+    .card-like-icon {
+      font-size: 15px;
+      line-height: 1;
+      transition: transform 0.2s ease;
+    }
+    .card-like-btn.liked .card-like-icon {
+      transform: scale(1.12);
+    }
+    .card-like-count {
+      font-size: 11px;
+      opacity: 0.7;
+      min-width: 12px;
+      text-align: right;
     }
 
     /* 悬停简介 */
@@ -1157,8 +1218,25 @@
 
     const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:5000' : '';
 
+    /* ── 配置 ── */
+    const CONFIG = {
+      THEME_KEY: 'dh-marketplace-theme',
+
+      // 分区
+      LATEST_COUNT: 8,
+      SPOTLIGHT_COUNT: 4,
+      POPULAR_LIKE_THRESHOLD: 5,  // 大众点评最低点赞数
+
+      // 排序权重
+      RECOMMEND_WEIGHT: 10,
+
+      // 分区标签映射
+      PLAYER_RESOURCE_TAGS: ['职业', '领域', '传承', '装备物品'],
+      GM_RESOURCE_TAGS: ['敌人', '环境', '碎心者工具集', '遭遇', '转变卡', '地点设定'],
+    };
+
     /* ── 主题管理 ── */
-    const THEME_KEY = 'dh-marketplace-theme'; // 与管理页共享
+    const THEME_KEY = CONFIG.THEME_KEY; // 与管理页共享
 
     function getSavedTheme() {
       try { return localStorage.getItem(THEME_KEY); } catch { return null; }
@@ -1196,6 +1274,7 @@
       loading: true,
       error: null,
       tagModalOpen: false,
+      likedEntries: [],
     };
 
     const $ = (sel) => document.querySelector(sel);
@@ -1241,6 +1320,62 @@
         state.loading = false;
         state.error = err.message;
       }
+    }
+
+    async function loadLikes() {
+      try {
+        const data = await apiFetch('/api/public/likes');
+        state.likedEntries = data.likedEntryIds || [];
+      } catch (err) {
+        console.error('点赞记录加载失败:', err);
+        state.likedEntries = [];
+      }
+    }
+
+    async function toggleLike(entryId, btnEl) {
+      try {
+        const res = await fetch(API_BASE + '/api/public/like/' + encodeURIComponent(entryId), {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `API ${res.status}`);
+        }
+        const data = await res.json();
+        if (data.liked) {
+          if (!state.likedEntries.includes(entryId)) state.likedEntries.push(entryId);
+        } else {
+          state.likedEntries = state.likedEntries.filter(id => id !== entryId);
+        }
+        const entry = state.entries.find(e => e.id === entryId);
+        if (entry) entry.likeCount = data.likeCount;
+        updateCardLikeUI(entryId, data.liked, data.likeCount);
+        renderTagModal();
+      } catch (err) {
+        console.error('点赞操作失败:', err);
+      }
+    }
+
+    function updateCardLikeUI(entryId, liked, likeCount) {
+      const btns = document.querySelectorAll(`.card-like-btn[data-entry-id="${entryId}"]`);
+      btns.forEach(btn => {
+        btn.classList.toggle('liked', liked);
+        btn.setAttribute('aria-label', liked ? '取消点赞' : '点赞');
+        const icon = btn.querySelector('.card-like-icon');
+        if (icon) icon.innerHTML = liked ? '&#9829;' : '&#9825;';
+        let countEl = btn.querySelector('.card-like-count');
+        if (likeCount > 0) {
+          if (!countEl) {
+            countEl = document.createElement('span');
+            countEl.className = 'card-like-count';
+            btn.appendChild(countEl);
+          }
+          countEl.textContent = likeCount;
+        } else {
+          if (countEl) countEl.remove();
+        }
+      });
     }
 
     function getFilteredEntries() {
@@ -1304,6 +1439,8 @@
       const isRec = entry.recommendValue > 0;
       const cTags = entry.contentTags || [];
       const fTags = entry.flavorTags || [];
+      const liked = state.likedEntries.includes(entry.id);
+      const likeCount = entry.likeCount || 0;
 
       return `
         <div class="card ${isRec?'recommended':''} ${hasSummary?'has-summary':''}"
@@ -1321,8 +1458,18 @@
             ${hasSummary?`<div class="card-summary-tooltip">${escHtml(entry.summary)}</div>`:''}
           </div>
           <div class="card-body">
-            <div class="card-title">${escHtml(entry.title)}</div>
-            <div class="card-author">${escHtml(entry.author)}</div>
+            <div class="card-body-row">
+              <div class="card-info">
+                <div class="card-title">${escHtml(entry.title)}</div>
+                <div class="card-author">${escHtml(entry.author)}</div>
+              </div>
+              <div class="card-like">
+                <button class="card-like-btn ${liked?'liked':''}" data-action="like" data-entry-id="${entry.id}" aria-label="${liked?'取消点赞':'点赞'}">
+                  <span class="card-like-icon">${liked?'&#9829;':'&#9825;'}</span>
+                  ${likeCount > 0 ? `<span class="card-like-count">${likeCount}</span>` : ''}
+                </button>
+              </div>
+            </div>
             <div class="card-tags">
               ${cTags.map(t=>`<span class="card-tag card-tag--content">${escHtml(t)}</span>`).join('')}
               ${fTags.map(t=>`<span class="card-tag card-tag--flavor">${escHtml(t)}</span>`).join('')}
@@ -1365,30 +1512,56 @@
       } else {
         dom.cardGrid.classList.remove('card-grid--centered');
         const sorted = [...state.entries].sort((a, b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
-        const latest = sorted.slice(0, 8);
-        const campaign = state.entries.filter(e => hasTag(e, '战役框架'));
-        const module = state.entries.filter(e => hasTag(e, '模组'));
+        const latest = sorted.slice(0, CONFIG.LATEST_COUNT);
+        const byScore = (arr) => [...arr].sort((a, b) => {
+          const sa = (a.recommendValue||0) * CONFIG.RECOMMEND_WEIGHT + (a.likeCount||0);
+          const sb = (b.recommendValue||0) * CONFIG.RECOMMEND_WEIGHT + (b.likeCount||0);
+          if (sb !== sa) return sb - sa;
+          return (b.updatedAt||'').localeCompare(a.updatedAt||'');
+        });
+        const campaign = byScore(state.entries.filter(e => hasTag(e, '战役框架')));
+        const module = byScore(state.entries.filter(e => hasTag(e, '模组')));
         const campaignOrModule = new Set([...campaign.map(e => e.id), ...module.map(e => e.id)]);
-        const playerResourceTags = ['职业','领域','传承','装备物品'];
-        const playerResource = state.entries.filter(e =>
-          !campaignOrModule.has(e.id) && playerResourceTags.some(t => hasTag(e, t)));
-        const gmResourceTags = ['敌人','环境','碎心者工具集','遭遇','转变卡','地点设定'];
-        const gmResource = state.entries.filter(e =>
-          !campaignOrModule.has(e.id) && gmResourceTags.some(t => hasTag(e, t)));
-        const extRule = state.entries.filter(e => hasTag(e, '扩展规则'));
+        const playerResourceTags = CONFIG.PLAYER_RESOURCE_TAGS;
+        const playerResource = byScore(state.entries.filter(e =>
+          !campaignOrModule.has(e.id) && playerResourceTags.some(t => hasTag(e, t))));
+        const gmResourceTags = CONFIG.GM_RESOURCE_TAGS;
+        const gmResource = byScore(state.entries.filter(e =>
+          !campaignOrModule.has(e.id) && gmResourceTags.some(t => hasTag(e, t))));
+        const extRule = byScore(state.entries.filter(e => hasTag(e, '扩展规则')));
         const allSpecialTags = ['战役框架','模组','扩展规则',...playerResourceTags,...gmResourceTags];
         const tagged = new Set([
           ...campaign, ...module, ...playerResource, ...gmResource, ...extRule
         ].map(e => e.id));
-        const other = state.entries.filter(e => !tagged.has(e.id));
+        const other = byScore(state.entries.filter(e => !tagged.has(e.id)));
+
+        const editorPick = [...state.entries]
+          .filter(e => e.recommendValue > 0)
+          .sort((a, b) => {
+            const rv = (b.recommendValue||0) - (a.recommendValue||0);
+            if (rv !== 0) return rv;
+            return (b.updatedAt||'').localeCompare(a.updatedAt||'');
+          })
+          .slice(0, CONFIG.SPOTLIGHT_COUNT);
+
+        const popularPick = [...state.entries]
+          .filter(e => (e.likeCount||0) >= CONFIG.POPULAR_LIKE_THRESHOLD)
+          .sort((a, b) => {
+            const lc = (b.likeCount||0) - (a.likeCount||0);
+            if (lc !== 0) return lc;
+            return (b.updatedAt||'').localeCompare(a.updatedAt||'');
+          })
+          .slice(0, CONFIG.SPOTLIGHT_COUNT);
 
         const sections = [
           { id: 'sec-latest', label: '最新收录', short: '最新', entries: latest },
+          { id: 'sec-editor', label: '编辑推荐', short: '推荐', entries: editorPick },
+          { id: 'sec-popular', label: '社群匕选', short: '热榜', entries: popularPick },
+          { id: 'sec-campaign', label: '战役框架', short: '战框', entries: campaign },
           { id: 'sec-module', label: '模组', short: '模组', entries: module },
           { id: 'sec-player', label: '玩家资源', short: '玩家', entries: playerResource },
           { id: 'sec-gm', label: 'GM资源', short: 'GM', entries: gmResource },
           { id: 'sec-extrule', label: '扩展规则', short: '房规', entries: extRule },
-          { id: 'sec-campaign', label: '战役框架', short: '战框', entries: campaign },
           { id: 'sec-other', label: '其他', short: '其他', entries: other },
         ];
 
@@ -1406,6 +1579,12 @@
 
       dom.cardGrid.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', (e) => {
+          const likeBtn = e.target.closest('[data-action="like"]');
+          if (likeBtn) {
+            e.stopPropagation();
+            toggleLike(likeBtn.dataset.entryId, likeBtn);
+            return;
+          }
           const href = card.dataset.href;
           if (href) window.open(href, '_blank', 'noopener');
         });
@@ -1550,6 +1729,7 @@
     async function init() {
       updateDisplayMode();
       await loadData();
+      await loadLikes();
       updateDisplayMode();
       renderAll();
       requestAnimationFrame(() => updateActiveNavSection());

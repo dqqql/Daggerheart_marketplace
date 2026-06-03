@@ -165,6 +165,100 @@ class MarketplaceServerTestCase(unittest.TestCase):
         self.assertEqual(payload["contentTags"][0], {"tag": "模组", "count": 2})
         self.assertEqual(payload["flavorTags"][0], {"tag": "西幻", "count": 2})
 
+    def test_like_toggle_creates_entry_and_unlikes(self) -> None:
+        self.login()
+        create_response = self.client.post(
+            "/api/admin/entries",
+            json={
+                "title": "测试条目",
+                "author": "测试",
+                "contentTags": ["模组"],
+                "flavorTags": [],
+                "recommendValue": 0,
+                "summary": "",
+                "coverPath": "/marketplace/covers/test.svg",
+                "targetUrl": "https://example.com/test",
+            },
+        )
+        entry_id = create_response.get_json()["entry"]["id"]
+
+        response = self.client.post(f"/api/public/like/{entry_id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertTrue(data["liked"])
+        self.assertEqual(data["likeCount"], 1)
+
+        bootstrap = self.client.get("/api/public/bootstrap")
+        entry = next(e for e in bootstrap.get_json()["entries"] if e["id"] == entry_id)
+        self.assertEqual(entry["likeCount"], 1)
+
+        likes_resp = self.client.get("/api/public/likes")
+        self.assertIn(entry_id, likes_resp.get_json()["likedEntryIds"])
+
+        response2 = self.client.post(f"/api/public/like/{entry_id}")
+        self.assertEqual(response2.status_code, 200)
+        data2 = response2.get_json()
+        self.assertFalse(data2["liked"])
+        self.assertEqual(data2["likeCount"], 0)
+
+        likes_resp2 = self.client.get("/api/public/likes")
+        self.assertNotIn(entry_id, likes_resp2.get_json()["likedEntryIds"])
+
+    def test_like_nonexistent_entry_returns_error(self) -> None:
+        response = self.client.post("/api/public/like/dhm_nonexistent")
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_entry_cleans_up_likes(self) -> None:
+        self.login()
+        create_response = self.client.post(
+            "/api/admin/entries",
+            json={
+                "title": "待删条目",
+                "author": "测试",
+                "contentTags": [],
+                "flavorTags": [],
+                "recommendValue": 0,
+                "summary": "",
+                "coverPath": "/marketplace/covers/del.svg",
+                "targetUrl": "https://example.com/del",
+            },
+        )
+        entry_id = create_response.get_json()["entry"]["id"]
+
+        self.client.post(f"/api/public/like/{entry_id}")
+
+        with patch("pathlib.Path.unlink"):
+            delete_response = self.client.delete(f"/api/admin/entries/{entry_id}")
+        self.assertEqual(delete_response.status_code, 200)
+
+        bootstrap = self.client.get("/api/public/bootstrap")
+        entry_ids = [e["id"] for e in bootstrap.get_json()["entries"]]
+        self.assertNotIn(entry_id, entry_ids)
+
+    def test_public_bootstrap_includes_like_count(self) -> None:
+        self.login()
+        self.client.post(
+            "/api/admin/entries",
+            json={
+                "title": "带赞条目",
+                "author": "测试",
+                "contentTags": [],
+                "flavorTags": [],
+                "recommendValue": 0,
+                "summary": "",
+                "coverPath": "/marketplace/covers/like_test.svg",
+                "targetUrl": "https://example.com/like_test",
+            },
+        )
+
+        bootstrap = self.client.get("/api/public/bootstrap")
+        entries = bootstrap.get_json()["entries"]
+        for entry in entries:
+            self.assertIn("likeCount", entry)
+            self.assertIsInstance(entry["likeCount"], int)
+            self.assertIn("likedBy", entry)
+            self.assertIsInstance(entry["likedBy"], list)
+
 
 if __name__ == "__main__":
     unittest.main()

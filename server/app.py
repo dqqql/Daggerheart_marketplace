@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
 import re
-import tempfile
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
@@ -15,16 +15,18 @@ from uuid import uuid4
 from flask import Flask, jsonify, request, send_from_directory, session
 from werkzeug.utils import secure_filename
 
+from server import config
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
-DEFAULT_ENTRIES_FILE = DEFAULT_RUNTIME_DIR / "entries.json"
-DEFAULT_COVERS_DIR = DEFAULT_RUNTIME_DIR / "covers"
-DEFAULT_SECRETS_DIR = DEFAULT_RUNTIME_DIR / "secrets"
-DEFAULT_ADMIN_PASSWORD_FILE = DEFAULT_SECRETS_DIR / "admin_password.txt"
-DEFAULT_SESSION_SECRET_FILE = DEFAULT_SECRETS_DIR / "session_secret.txt"
-ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
-MAX_CONTENT_LENGTH = 8 * 1024 * 1024
+
+ROOT_DIR = config.ROOT_DIR
+DEFAULT_RUNTIME_DIR = config.RUNTIME_DIR
+DEFAULT_ENTRIES_FILE = config.ENTRIES_FILE
+DEFAULT_COVERS_DIR = config.COVERS_DIR
+DEFAULT_SECRETS_DIR = config.SECRETS_DIR
+DEFAULT_ADMIN_PASSWORD_FILE = config.ADMIN_PASSWORD_FILE
+DEFAULT_SESSION_SECRET_FILE = config.SESSION_SECRET_FILE
+ALLOWED_IMAGE_EXTENSIONS = set(config.ALLOWED_IMAGE_EXTENSIONS)
+MAX_CONTENT_LENGTH = config.MAX_CONTENT_LENGTH
 
 
 class ValidationError(ValueError):
@@ -42,11 +44,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         SESSION_SECRET_FILE=str(DEFAULT_SESSION_SECRET_FILE),
         ADMIN_PASSWORD=os.getenv("MARKETPLACE_ADMIN_PASSWORD"),
         SESSION_SECRET=os.getenv("MARKETPLACE_SESSION_SECRET"),
-        COVER_URL_PREFIX="/marketplace/covers",
+        COVER_URL_PREFIX=config.COVER_URL_PREFIX,
         MAX_CONTENT_LENGTH=MAX_CONTENT_LENGTH,
-        SESSION_COOKIE_NAME="dh_market_admin",
+        SESSION_COOKIE_NAME=config.SESSION_COOKIE_NAME,
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SAMESITE=config.SESSION_COOKIE_SAMESITE,
         SESSION_COOKIE_SECURE=False,
     )
 
@@ -86,6 +88,40 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def public_bootstrap():
         entries = load_entries(app)
         return jsonify({"entries": entries, "tags": build_tag_counts(entries)})
+
+    @app.get("/api/public/likes")
+    def public_likes():
+        ip_hash = get_client_ip_hash()
+        entries = load_entries(app)
+        liked_ids = [entry["id"] for entry in entries if ip_hash in entry.get("likedBy", [])]
+        return jsonify({"likedEntryIds": liked_ids})
+
+    @app.post("/api/public/like/<entry_id>")
+    def toggle_like(entry_id: str):
+        ip_hash = get_client_ip_hash()
+        if not ip_hash:
+            raise ValidationError("unable to identify client")
+
+        entries = load_entries(app)
+        index, entry = find_entry(entries, entry_id)
+
+        liked_by = entry.get("likedBy", [])
+        if not isinstance(liked_by, list):
+            liked_by = []
+
+        if ip_hash in liked_by:
+            liked_by.remove(ip_hash)
+            liked = False
+        else:
+            liked_by.append(ip_hash)
+            liked = True
+
+        new_count = len(liked_by)
+        entry["likedBy"] = liked_by
+        entry["likeCount"] = new_count
+        save_entries(app, entries)
+
+        return jsonify({"liked": liked, "likeCount": new_count})
 
     @app.get("/api/admin/session")
     def admin_session():
@@ -298,6 +334,11 @@ def load_entries(app: Flask) -> list[dict[str, Any]]:
     entries = raw_data.get("entries")
     if not isinstance(entries, list):
         raise RuntimeError("entries.json must contain an 'entries' array")
+    for entry in entries:
+        if "likeCount" not in entry:
+            entry["likeCount"] = 0
+        if "likedBy" not in entry:
+            entry["likedBy"] = []
     return entries
 
 
@@ -305,27 +346,32 @@ def save_entries(app: Flask, entries: list[dict[str, Any]]) -> None:
     atomic_write_json(Path(app.config["ENTRIES_FILE"]), {"entries": entries})
 
 
+def get_client_ip_hash() -> str:
+    from flask import request
+
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    ip = forwarded or request.remote_addr or ""
+    if not ip:
+        return ""
+    return hashlib.sha256(f"{config.LIKE_HASH_SALT}{ip}".encode()).hexdigest()[:config.LIKE_HASH_LENGTH]
+
+
 def atomic_write_json(target_path: Path, payload: dict[str, Any]) -> None:
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    serialized = json.dumps(payload, ensure_ascii=False, indent=config.JSON_INDENT) + "\n"
 
-    if os.name == "nt":
-        target_path.write_text(serialized, encoding="utf-8")
-        return
-
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=target_path.parent, delete=False
-    ) as temp_file:
-        temp_file.write(serialized)
-        temp_name = temp_file.name
-
+    tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
     try:
-        Path(temp_name).replace(target_path)
-    except PermissionError:
+        tmp_path.write_text(serialized, encoding="utf-8")
+        tmp_path.replace(target_path)
+    except (PermissionError, OSError):
         target_path.write_text(serialized, encoding="utf-8")
-        temp_path = Path(temp_name)
-        if temp_path.exists():
-            temp_path.unlink()
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 def normalize_entry(
@@ -361,6 +407,8 @@ def normalize_entry(
         "contentTags": content_tags,
         "flavorTags": flavor_tags,
         "recommendValue": recommend_value,
+        "likeCount": 0 if current_entry is None else current_entry.get("likeCount", 0),
+        "likedBy": [] if current_entry is None else current_entry.get("likedBy", []),
         "summary": summary,
         "coverPath": cover_path,
         "targetUrl": target_url,
@@ -489,7 +537,7 @@ def delete_cover_file(app: Flask, cover_path: str) -> None:
 
 def generate_entry_id(existing_ids: set[str]) -> str:
     while True:
-        candidate = f"dhm_{uuid4().hex[:8]}"
+        candidate = f"{config.ENTRY_ID_PREFIX}{uuid4().hex[:config.ENTRY_ID_HEX_LENGTH]}"
         if candidate not in existing_ids:
             return candidate
 
