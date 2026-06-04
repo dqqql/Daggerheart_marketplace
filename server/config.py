@@ -17,7 +17,7 @@ ALLOWED_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", 
 MAX_CONTENT_LENGTH = 8 * 1024 * 1024  # 8 MB
 
 # ── URL 前缀 ──
-COVER_URL_PREFIX = "/marketplace/covers"
+COVER_URL_PREFIX = "/the-great-vault/covers"
 
 # ── 会话 ──
 SESSION_COOKIE_NAME = "dh_market_admin"

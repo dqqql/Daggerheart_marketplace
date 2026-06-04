@@ -32,7 +32,7 @@ class MarketplaceServerTestCase(unittest.TestCase):
                 "SESSION_SECRET_FILE": str(self.secrets_dir / "session_secret.txt"),
                 "ADMIN_PASSWORD": "test-password",
                 "SESSION_SECRET": "test-session-secret",
-                "COVER_URL_PREFIX": "/marketplace/covers",
+                "COVER_URL_PREFIX": "/the-great-vault/covers",
             }
         )
         self.client = self.app.test_client()

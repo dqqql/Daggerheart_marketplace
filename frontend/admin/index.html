@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Marketplace Admin</title>
+  <title>宏伟宝库 · 管理端</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&display=swap" rel="stylesheet">
@@ -551,7 +551,7 @@
   <div class="login-screen" id="loginScreen">
     <div class="login-card">
       <div class="login-icon" aria-hidden="true">&#9876;</div>
-      <div class="login-title">Marketplace Admin</div>
+      <div class="login-title">宏伟宝库 · 管理端</div>
       <div class="login-subtitle">管理入口 — 输入口令以继续</div>
       <div class="login-error" id="loginError"></div>
       <div class="field">
@@ -1115,7 +1115,7 @@
 
     logoutBtn.addEventListener('click', async () => {
       try { await api('/api/admin/logout', { method: 'POST' }); } catch {}
-      window.location.href = API_BASE + '/marketplace/';
+      window.location.href = API_BASE + '/the-great-vault/';
     });
 
     newEntryBtn.addEventListener('click', () => openEditor(null));

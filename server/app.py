@@ -254,16 +254,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     frontend_dir = ROOT_DIR / "frontend"
 
     @app.route("/")
-    @app.route("/marketplace/")
+    @app.route("/the-great-vault/")
     def serve_index():
         return send_from_directory(str(frontend_dir), "index.html")
 
-    @app.route("/marketplace/admin/")
+    @app.route("/the-great-vault/admin/")
     @app.route("/admin/")
     def serve_admin():
         return send_from_directory(str(frontend_dir / "admin"), "index.html")
 
-    @app.route("/marketplace/covers/<path:filename>")
+    @app.route("/the-great-vault/covers/<path:filename>")
     def serve_cover(filename: str):
         return send_from_directory(str(Path(app.config["COVERS_DIR"])), filename)
 
