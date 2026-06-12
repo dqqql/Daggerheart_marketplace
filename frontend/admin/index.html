@@ -614,7 +614,7 @@
     </header>
 
     <div class="tabs" id="tabs">
-      <button class="tab-btn active" id="tabEntries">已发布</button>
+      <button class="tab-btn active" id="tabEntries">已发布 <span class="tab-badge zero" id="entryBadge">0</span></button>
       <button class="tab-btn" id="tabSubmissions">待审核 <span class="tab-badge zero" id="submissionBadge">0</span></button>
     </div>
 
@@ -763,6 +763,23 @@
       activeTab = 'entries';
       setTab('entries');
       await loadEntries();
+      loadSubmissionCount();
+    }
+
+    function updateEntryBadge() {
+      var n = entries.length;
+      entryBadge.textContent = n;
+      entryBadge.classList.toggle('zero', n === 0);
+    }
+
+    async function loadSubmissionCount() {
+      try {
+        var data = await api('/api/admin/submissions');
+        submissions = data.submissions || [];
+        updateSubmissionBadge();
+      } catch (err) {
+        // 静默失败——计数非关键
+      }
     }
 
     async function loadEntries() {
@@ -811,11 +828,13 @@
 
       entryList.querySelectorAll('.edit-btn').forEach(b => b.addEventListener('click', () => openEditor(b.dataset.id)));
       entryList.querySelectorAll('.delete-btn').forEach(b => b.addEventListener('click', () => confirmDelete(b.dataset.id)));
+      updateEntryBadge();
     }
 
     /* ── 审核系统 ── */
     const tabEntries = document.getElementById('tabEntries');
     const tabSubmissions = document.getElementById('tabSubmissions');
+    const entryBadge = document.getElementById('entryBadge');
     const submissionBadge = document.getElementById('submissionBadge');
     const submissionListEl = document.getElementById('submissionList');
     const submissionListHeader = document.getElementById('submissionListHeader');
