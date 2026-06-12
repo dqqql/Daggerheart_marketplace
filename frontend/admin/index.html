@@ -970,13 +970,13 @@
         + '<input class="input" id="formAuthor" value="' + escAttr(s.author || '') + '" placeholder="制作者署名">'
         + '</div>'
         + '<div class="form-group">'
-        + '<span class="form-label">内容标签 <span class="form-hint">— 描述内容类型</span></span>'
+        + '<span class="form-label">内容标签 <span class="form-hint">— Enter 添加</span></span>'
         + '<div class="chip-input-wrap" id="chipContentTags">'
         + (s.contentTags || []).map(function (t) { return '<span class="chip">' + escHtml(t) + '<span class="chip-remove" role="button" tabindex="0">&times;</span></span>'; }).join('')
         + '<input class="chip-input" placeholder="输入标签…">'
         + '</div></div>'
         + '<div class="form-group">'
-        + '<span class="form-label">风味标签 <span class="form-hint">— 描述题材风格</span></span>'
+        + '<span class="form-label">风味标签 <span class="form-hint">— Enter 添加</span></span>'
         + '<div class="chip-input-wrap" id="chipFlavorTags">'
         + (s.flavorTags || []).map(function (t) { return '<span class="chip">' + escHtml(t) + '<span class="chip-remove" role="button" tabindex="0">&times;</span></span>'; }).join('')
         + '<input class="chip-input" placeholder="输入标签…">'
