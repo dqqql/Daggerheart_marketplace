@@ -1398,58 +1398,7 @@
         <span class="modal-title">提交资源</span>
         <button class="modal-close" id="submitModalClose" type="button">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="form-group full">
-          <span class="form-label">封面图片</span>
-          <div class="cover-upload-area">
-            <div class="cover-preview" id="submitCoverPreview">
-              <span class="cover-preview-placeholder">&#9876;</span>
-            </div>
-            <div class="cover-upload-controls">
-              <input type="file" class="input" id="submitCoverFile" accept="image/png,image/jpeg,image/webp,image/gif">
-              <div class="cropper-panel" id="submitCropperPanel">
-                <div class="cropper-main" id="submitCropperMain">
-                  <canvas id="submitCropperCanvas"></canvas>
-                </div>
-                <div class="cropper-actions">
-                  <span class="cropper-hint">拖拽移动 · 滚轮缩放</span>
-                  <button class="btn btn--gold btn--sm" id="submitCropperCropBtn" type="button">确认裁剪</button>
-                  <button class="btn btn--ghost btn--sm" id="submitCropperCancelBtn" type="button">取消</button>
-                </div>
-              </div>
-              <span class="cover-upload-status" id="submitCoverStatus"></span>
-            </div>
-          </div>
-        </div>
-        <div class="form-group">
-          <span class="form-label"><span class="required">*</span> 标题</span>
-          <input class="input" id="submitTitle" placeholder="资源标题">
-        </div>
-        <div class="form-group">
-          <span class="form-label">作者</span>
-          <input class="input" id="submitAuthor" placeholder="制作者署名">
-        </div>
-        <div class="form-group">
-          <span class="form-label">内容标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>
-          <div class="chip-input-wrap" id="submitContentTags">
-            <input class="chip-input" placeholder="输入标签…">
-          </div>
-        </div>
-        <div class="form-group">
-          <span class="form-label">风味标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>
-          <div class="chip-input-wrap" id="submitFlavorTags">
-            <input class="chip-input" placeholder="输入标签…">
-          </div>
-        </div>
-        <div class="form-group">
-          <span class="form-label"><span class="required">*</span> 跳转链接</span>
-          <input class="input" id="submitTargetUrl" placeholder="https://…">
-        </div>
-        <div class="form-group full">
-          <span class="form-label">简介 <span class="form-hint">— 可选，悬停卡片时显示</span></span>
-          <textarea class="textarea" id="submitSummary" placeholder="简介…"></textarea>
-        </div>
-      </div>
+      <div class="modal-body" id="submitModalBody"></div>
       <div class="modal-footer">
         <button class="btn btn--ghost" id="submitModalCancelBtn" type="button">取消</button>
         <button class="btn btn--gold" id="submitModalSaveBtn" type="button">提交</button>
@@ -1460,6 +1409,7 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
+  <script src="/the-great-vault/assets/resource-form.js"></script>
   <script>
   (function () {
     'use strict';
@@ -2000,229 +1950,37 @@
     const submitClose = document.getElementById('submitModalClose');
     const submitCancel = document.getElementById('submitModalCancelBtn');
     const submitSave = document.getElementById('submitModalSaveBtn');
-    const submitCoverPreview = document.getElementById('submitCoverPreview');
-    const submitCoverFile = document.getElementById('submitCoverFile');
-    const submitCoverStatus = document.getElementById('submitCoverStatus');
-    const submitTitle = document.getElementById('submitTitle');
-    const submitAuthor = document.getElementById('submitAuthor');
-    const submitTargetUrl = document.getElementById('submitTargetUrl');
-    const submitSummary = document.getElementById('submitSummary');
+    const submitBody = document.getElementById('submitModalBody');
+    let submitForm = null;
 
-    let submitCoverPath = '';
-
-    // ── Chip Input ──
-    function bindChipInput(wrapId) {
-      var wrap = document.getElementById(wrapId);
-      if (!wrap) return;
-      var input = wrap.querySelector('.chip-input');
-      if (!input) return;
-
-      function makeChip(text) {
-        var span = document.createElement('span');
-        span.className = 'chip';
-        span.innerHTML = escHtml(text) + '<span class=\"chip-remove\" role=\"button\" tabindex=\"0\">&times;</span>';
-        span.querySelector('.chip-remove').addEventListener('click', function () {
-          span.remove();
-          input.focus();
-        });
-        return span;
-      }
-
-      input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ',') {
-          e.preventDefault();
-          var val = input.value.trim();
-          if (val) {
-            wrap.insertBefore(makeChip(val), input);
-            input.value = '';
-          }
-        }
-        if (e.key === 'Backspace' && input.value === '') {
-          var chips = wrap.querySelectorAll('.chip');
-          if (chips.length) { chips[chips.length - 1].remove(); }
-        }
-      });
-      wrap.addEventListener('click', function () { input.focus(); });
-    }
-    function getChipVals(wrapId) {
-      var chips = document.getElementById(wrapId).querySelectorAll('.chip');
-      return Array.from(chips).map(function (c) { return c.childNodes[0].textContent.trim(); });
-    }
-
-    bindChipInput('submitContentTags');
-    bindChipInput('submitFlavorTags');
-
-    // ── Cover Cropper ──
-    var submitCropperPanel = document.getElementById('submitCropperPanel');
-    var submitCropperCanvas = document.getElementById('submitCropperCanvas');
-    var submitCropperCtx = submitCropperCanvas.getContext('2d');
-    var submitCropperMain = document.getElementById('submitCropperMain');
-
-    var OUT_W = 600, OUT_H = 800;
-    var CANVAS_W = 360, CANVAS_H = 480;
-    submitCropperCanvas.width = CANVAS_W;
-    submitCropperCanvas.height = CANVAS_H;
-
-    var cropImg = null, cropScale = 1, cropIW = 0, cropIH = 0, cropOX = 0, cropOY = 0;
-    var cropX = 0, cropY = 0, cropW = 0, cropH = 0;
-    var dragging = false, dragStartX, dragStartY, dragStartCX, dragStartCY;
-
-    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-    function drawCropper() {
-      if (!cropImg) return;
-      var ctx = submitCropperCtx;
-      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-      ctx.drawImage(cropImg, cropOX, cropOY, cropIW, cropIH);
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(cropX, cropY, cropW, cropH);
-      ctx.clip();
-      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-      ctx.drawImage(cropImg, cropOX, cropOY, cropIW, cropIH);
-      ctx.restore();
-      ctx.strokeStyle = '#ddc078';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cropX, cropY, cropW, cropH);
-      ctx.fillStyle = '#ddc078';
-      var cs = 8;
-      ctx.fillRect(cropX, cropY, cs, cs);
-      ctx.fillRect(cropX + cropW - cs, cropY, cs, cs);
-      ctx.fillRect(cropX, cropY + cropH - cs, cs, cs);
-      ctx.fillRect(cropX + cropW - cs, cropY + cropH - cs, cs, cs);
-      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-      ctx.lineWidth = 0.5;
-      ctx.beginPath();
-      ctx.moveTo(cropX + cropW / 3, cropY); ctx.lineTo(cropX + cropW / 3, cropY + cropH);
-      ctx.moveTo(cropX + cropW * 2 / 3, cropY); ctx.lineTo(cropX + cropW * 2 / 3, cropY + cropH);
-      ctx.moveTo(cropX, cropY + cropH / 3); ctx.lineTo(cropX + cropW, cropY + cropH / 3);
-      ctx.moveTo(cropX, cropY + cropH * 2 / 3); ctx.lineTo(cropX + cropW, cropY + cropH * 2 / 3);
-      ctx.stroke();
-    }
-
-    function initCropBox() {
-      cropH = cropIH * 0.9;
-      cropW = cropH * 0.75;
-      if (cropW > cropIW) { cropW = cropIW; cropH = cropW / 0.75; }
-      cropX = cropOX + (cropIW - cropW) / 2;
-      cropY = cropOY + (cropIH - cropH) / 2;
-      drawCropper();
-    }
-
-    function applyZoom(ratio, cx, cy) {
-      var newH = clamp(cropH * ratio, 60, cropIH);
-      var newW = newH * 0.75;
-      var kx = cx !== undefined ? cx : cropX + cropW / 2;
-      var ky = cy !== undefined ? cy : cropY + cropH / 2;
-      var scale = newW / cropW;
-      cropW = newW; cropH = newH;
-      cropX = clamp(kx - (kx - cropX) * scale, cropOX, cropOX + cropIW - cropW);
-      cropY = clamp(ky - (ky - cropY) * scale, cropOY, cropOY + cropIH - cropH);
-      drawCropper();
-    }
-
-    function initCropper(file) {
-      var reader = new FileReader();
-      reader.onload = function (e) {
-        cropImg = new Image();
-        cropImg.onload = function () {
-          var scaleW = CANVAS_W / cropImg.width;
-          var scaleH = CANVAS_H / cropImg.height;
-          cropScale = Math.min(scaleW, scaleH);
-          cropIW = cropImg.width * cropScale;
-          cropIH = cropImg.height * cropScale;
-          cropOX = (CANVAS_W - cropIW) / 2;
-          cropOY = (CANVAS_H - cropIH) / 2;
-          initCropBox();
-          submitCropperPanel.classList.add('active');
-        };
-        cropImg.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
-    }
-
-    submitCoverFile.addEventListener('change', function () {
-      var file = submitCoverFile.files[0];
-      if (file) initCropper(file);
-    });
-
-    submitCropperMain.addEventListener('wheel', function (e) {
-      if (!cropImg) return;
-      e.preventDefault();
-      var rect = submitCropperMain.getBoundingClientRect();
-      var mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-      var my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-      applyZoom(e.deltaY < 0 ? 1.1 : 0.9, mx, my);
-    }, { passive: false });
-
-    submitCropperMain.addEventListener('mousedown', function (e) {
-      if (!cropImg) return;
-      var rect = submitCropperMain.getBoundingClientRect();
-      var mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-      var my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-      if (mx >= cropX && mx <= cropX + cropW && my >= cropY && my <= cropY + cropH) {
-        dragging = true;
-        dragStartX = mx; dragStartY = my;
-        dragStartCX = cropX; dragStartCY = cropY;
-        e.preventDefault();
-      }
-    });
-    window.addEventListener('mousemove', function (e) {
-      if (!dragging) return;
-      var rect = submitCropperMain.getBoundingClientRect();
-      var mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-      var my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-      cropX = clamp(dragStartCX + (mx - dragStartX), cropOX, cropOX + cropIW - cropW);
-      cropY = clamp(dragStartCY + (my - dragStartY), cropOY, cropOY + cropIH - cropH);
-      drawCropper();
-    });
-    window.addEventListener('mouseup', function () { dragging = false; });
-
-    document.getElementById('submitCropperCropBtn').addEventListener('click', function () {
-      if (!cropImg) return;
-      var outCanvas = document.createElement('canvas');
-      outCanvas.width = OUT_W; outCanvas.height = OUT_H;
-      var octx = outCanvas.getContext('2d');
-      var sx = (cropX - cropOX) / cropScale;
-      var sy = (cropY - cropOY) / cropScale;
-      var sw = cropW / cropScale;
-      var sh = cropH / cropScale;
-      octx.drawImage(cropImg, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
-
-      submitCoverStatus.textContent = '上传中…';
-      submitCoverStatus.className = 'cover-upload-status';
-      outCanvas.toBlob(function (blob) {
-        var fd = new FormData();
-        fd.append('file', blob, 'cover.webp');
-        fetch(API_BASE + '/api/public/covers', { method: 'POST', body: fd })
-          .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '上传失败'); });
-            return res.json();
-          })
-          .then(function (data) {
-            submitCoverPath = data.coverPath;
-            submitCoverPreview.innerHTML = '<img src=\"' + data.coverPath + '\" alt=\"封面预览\">';
-            submitCoverStatus.textContent = '上传成功';
-            submitCoverStatus.className = 'cover-upload-status success';
-            cropImg = null;
-            submitCropperPanel.classList.remove('active');
-            submitCoverFile.value = '';
-          })
-          .catch(function (err) {
-            submitCoverStatus.textContent = err.message;
-            submitCoverStatus.className = 'cover-upload-status error';
+    function mountSubmitForm() {
+      submitForm = window.ResourceForm.create({
+        bodyEl: submitBody,
+        showRecommendValue: false,
+        initialValues: {
+          title: '',
+          author: '',
+          contentTags: [],
+          flavorTags: [],
+          summary: '',
+          targetUrl: '',
+          coverPath: ''
+        },
+        uploadCover: async function (formData) {
+          var res = await fetch(API_BASE + '/api/public/covers', {
+            method: 'POST',
+            body: formData
           });
-      }, 'image/webp', 0.85);
-    });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok) throw new Error(data.error || '上传失败');
+          return data;
+        },
+        escHtml: escHtml,
+        escAttr: escAttr
+      });
+    }
 
-    document.getElementById('submitCropperCancelBtn').addEventListener('click', function () {
-      cropImg = null;
-      submitCropperPanel.classList.remove('active');
-      submitCoverFile.value = '';
-      submitCropperCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-    });
+    mountSubmitForm();
 
     // ── Modal 开/关 ──
     function openSubmitModal() {
@@ -2233,23 +1991,7 @@
     function closeSubmitModal() {
       submitOverlay.classList.remove('visible');
       document.body.style.overflow = '';
-      // 清空表单
-      submitTitle.value = '';
-      submitAuthor.value = '';
-      submitTargetUrl.value = '';
-      submitSummary.value = '';
-      submitCoverPath = '';
-      submitCoverPreview.innerHTML = '<span class=\"cover-preview-placeholder\">&#9876;</span>';
-      submitCoverFile.value = '';
-      submitCoverStatus.textContent = '';
-      cropImg = null;
-      submitCropperPanel.classList.remove('active');
-      submitCropperCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-      // 清空标签
-      ['submitContentTags', 'submitFlavorTags'].forEach(function (id) {
-        var wrap = document.getElementById(id);
-        wrap.querySelectorAll('.chip').forEach(function (c) { c.remove(); });
-      });
+      mountSubmitForm();
     }
 
     submitBtn.addEventListener('click', openSubmitModal);
@@ -2261,25 +2003,10 @@
 
     // ── 提交流程 ──
     submitSave.addEventListener('click', async function () {
-      var title = submitTitle.value.trim();
-      var author = submitAuthor.value.trim();
-      var cTags = getChipVals('submitContentTags');
-      var fTags = getChipVals('submitFlavorTags');
-      var targetUrl = submitTargetUrl.value.trim();
-      var summary = submitSummary.value.trim();
+      var body = submitForm.collect();
 
-      if (!title) { showToast('标题不能为空', 'error'); return; }
-      if (!targetUrl) { showToast('跳转链接不能为空', 'error'); return; }
-
-      var body = {
-        title: title,
-        author: author,
-        contentTags: cTags,
-        flavorTags: fTags,
-        summary: summary,
-        targetUrl: targetUrl,
-        coverPath: submitCoverPath,
-      };
+      if (!body.title) { showToast('标题不能为空', 'error'); return; }
+      if (!body.targetUrl) { showToast('跳转链接不能为空', 'error'); return; }
 
       submitSave.disabled = true;
       try {

@@ -662,6 +662,7 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
+  <script src="/the-great-vault/assets/resource-form.js"></script>
   <script>
   (function () {
     'use strict';
@@ -715,7 +716,6 @@
     let entries = [];
     let editingId = null;
     let pendingDeleteId = null;
-    let formCoverPath = '';
 
     /* ── API ── */
     async function api(path, opts = {}) {
@@ -842,7 +842,8 @@
 
     let submissions = [];
     let activeTab = 'entries';        // 'entries' | 'submissions'
-    let editingSubmissionId = null;   // 当前正在编辑的投稿 id
+    let currentEditor = null;
+    let resourceForm = null;
 
     function setTab(tab) {
       activeTab = tab;
@@ -930,118 +931,72 @@
       });
     }
 
-    /* ── 投稿编辑弹窗（复用现有 modal） ── */
-    function openSubmissionEditor(id) {
-      editingSubmissionId = id;
-      editingId = null;  // 不是编辑条目
-      formCoverPath = '';
-      var s = submissions.find(function (x) { return x.id === id; });
-      if (!s) return;
+    function buildEditorConfig(mode, source) {
+      if (mode === 'submission') {
+        return {
+          mode: mode,
+          id: source.id,
+          title: '编辑投稿',
+          saveLabel: '保存',
+          initialValues: source,
+          submit: async function (payload) {
+            await api('/api/admin/submissions/' + source.id, { method: 'PUT', body: JSON.stringify(payload) });
+            showToast('投稿已更新');
+            await loadSubmissions();
+          }
+        };
+      }
 
-      entryModalTitle.textContent = '编辑投稿';
-      formCoverPath = s.coverPath || '';
+      return {
+        mode: mode,
+        id: source ? source.id : null,
+        title: source ? '编辑条目' : '新建条目',
+        saveLabel: '保存',
+        initialValues: source || {
+          title: '',
+          author: '',
+          contentTags: [],
+          flavorTags: [],
+          recommendValue: 0,
+          summary: '',
+          targetUrl: '',
+          coverPath: ''
+        },
+        submit: async function (payload) {
+          if (source) {
+            await api('/api/admin/entries/' + source.id, { method: 'PUT', body: JSON.stringify(payload) });
+            showToast('条目已更新');
+          } else {
+            await api('/api/admin/entries', { method: 'POST', body: JSON.stringify(payload) });
+            showToast('条目已创建');
+          }
+          await loadEntries();
+        }
+      };
+    }
 
-      entryModalBody.innerHTML = ''
-        + '<div class="form-group full">'
-        + '<span class="form-label">封面图片</span>'
-        + '<div class="cover-upload-area">'
-        + '<div class="cover-preview" id="coverPreview">'
-        + (formCoverPath
-          ? '<img src="' + escAttr(formCoverPath) + '" alt="封面预览" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\'"><span class="cover-preview-placeholder" ' + (formCoverPath ? 'style="display:none"' : '') + '>&#9876;</span>'
-          : '<span class="cover-preview-placeholder">&#9876;</span>')
-        + '</div>'
-        + '<div class="cover-upload-controls">'
-        + '<input type="file" class="input" id="coverFileInput" accept="image/png,image/jpeg,image/webp,image/gif">'
-        + '<div class="cropper-panel" id="cropperPanel">'
-        + '<div class="cropper-main" id="cropperMain"><canvas id="cropperCanvas"></canvas></div>'
-        + '<div class="cropper-actions">'
-        + '<span class="cropper-hint">拖拽移动 · 滚轮缩放</span>'
-        + '<button class="btn btn--gold btn--sm" id="cropperCropBtn" type="button">确认裁剪</button>'
-        + '<button class="btn btn--ghost btn--sm" id="cropperCancelBtn" type="button">取消</button>'
-        + '</div></div>'
-        + '<span class="cover-upload-status" id="coverUploadStatus"></span>'
-        + '</div></div></div>'
-        + '<div class="form-group">'
-        + '<span class="form-label"><span class="required">*</span> 标题</span>'
-        + '<input class="input" id="formTitle" value="' + escAttr(s.title || '') + '" placeholder="资源标题">'
-        + '</div>'
-        + '<div class="form-group">'
-        + '<span class="form-label">作者</span>'
-        + '<input class="input" id="formAuthor" value="' + escAttr(s.author || '') + '" placeholder="制作者署名">'
-        + '</div>'
-        + '<div class="form-group">'
-        + '<span class="form-label">内容标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>'
-        + '<div class="chip-input-wrap" id="chipContentTags">'
-        + (s.contentTags || []).map(function (t) { return '<span class="chip">' + escHtml(t) + '<span class="chip-remove" role="button" tabindex="0">&times;</span></span>'; }).join('')
-        + '<input class="chip-input" placeholder="输入标签…">'
-        + '</div></div>'
-        + '<div class="form-group">'
-        + '<span class="form-label">风味标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>'
-        + '<div class="chip-input-wrap" id="chipFlavorTags">'
-        + (s.flavorTags || []).map(function (t) { return '<span class="chip">' + escHtml(t) + '<span class="chip-remove" role="button" tabindex="0">&times;</span></span>'; }).join('')
-        + '<input class="chip-input" placeholder="输入标签…">'
-        + '</div></div>'
-        + '<div class="form-group">'
-        + '<span class="form-label">推荐值</span>'
-        + '<input class="input" id="formRecValue" type="number" min="0" value="' + (s.recommendValue || 0) + '" placeholder="0">'
-        + '</div>'
-        + '<div class="form-group">'
-        + '<span class="form-label"><span class="required">*</span> 跳转链接</span>'
-        + '<input class="input" id="formTargetUrl" value="' + escAttr(s.targetUrl || '') + '" placeholder="https://…">'
-        + '</div>'
-        + '<div class="form-group full">'
-        + '<span class="form-label">简介 <span class="form-hint">— 可选，悬停卡片时显示</span></span>'
-        + '<textarea class="textarea" id="formSummary" placeholder="简介…">' + escHtml(s.summary || '') + '</textarea>'
-        + '</div>';
-
-      bindChipInput('chipContentTags');
-      bindChipInput('chipFlavorTags');
-
-      // 裁剪器（复用现有逻辑）
-      setupCropper();
-
+    function openResourceEditor(config) {
+      currentEditor = config;
+      entryModalTitle.textContent = config.title;
+      entryModalSave.textContent = config.saveLabel;
+      resourceForm = window.ResourceForm.create({
+        bodyEl: entryModalBody,
+        showRecommendValue: true,
+        initialValues: config.initialValues,
+        uploadCover: async function (formData) {
+          return api('/api/admin/covers', { method: 'POST', body: formData });
+        },
+        escHtml: escHtml,
+        escAttr: escAttr
+      });
       entryModal.classList.add('visible');
       document.body.style.overflow = 'hidden';
     }
 
-    /* ── 保存投稿编辑 ── */
-    var origSaveHandler = null;
-    entryModalSave.addEventListener('click', function saveHandler(e) {
-      if (editingSubmissionId) {
-        e.stopImmediatePropagation();
-        saveSubmissionEdit();
-      }
-      // 否则由原来的 saveEntry 处理
-    }, true);
-
-    async function saveSubmissionEdit() {
-      var title = (document.getElementById('formTitle')?.value || '').trim();
-      var author = (document.getElementById('formAuthor')?.value || '').trim();
-      var cTags = getChipVals('chipContentTags');
-      var fTags = getChipVals('chipFlavorTags');
-      var recVal = parseInt(document.getElementById('formRecValue')?.value || '0', 10) || 0;
-      var targetUrl = (document.getElementById('formTargetUrl')?.value || '').trim();
-      var summary = (document.getElementById('formSummary')?.value || '').trim();
-
-      if (!title) { showToast('标题不能为空', 'error'); return; }
-      if (!targetUrl) { showToast('跳转链接不能为空', 'error'); return; }
-
-      var body = {
-        title: title, author: author,
-        contentTags: cTags, flavorTags: fTags,
-        recommendValue: recVal, summary: summary,
-        targetUrl: targetUrl, coverPath: formCoverPath,
-      };
-
-      entryModalSave.disabled = true;
-      try {
-        await api('/api/admin/submissions/' + editingSubmissionId, { method: 'PUT', body: JSON.stringify(body) });
-        showToast('投稿已更新');
-        closeEditor();
-        editingSubmissionId = null;
-        await loadSubmissions();
-      } catch (err) { showToast(err.message, 'error'); }
-      finally { entryModalSave.disabled = false; }
+    function openSubmissionEditor(id) {
+      var submission = submissions.find(function (item) { return item.id === id; });
+      if (!submission) return;
+      openResourceEditor(buildEditorConfig('submission', submission));
     }
 
     /* ── 通过 / 驳回 ── */
@@ -1068,468 +1023,37 @@
       confirmOverlay.classList.add('visible');
     }
 
-    /* ── 裁剪器初始化提取 ── */
-    function setupCropper() {
-      var cropperPanel = document.getElementById('cropperPanel');
-      var cropperCanvas = document.getElementById('cropperCanvas');
-      var cropperCtx = cropperCanvas.getContext('2d');
-      var cropperMain = document.getElementById('cropperMain');
-      var coverUploadStatus = document.getElementById('coverUploadStatus');
-
-      var OUT_W = 600, OUT_H = 800;
-      var CANVAS_W = 360, CANVAS_H = 480;
-      cropperCanvas.width = CANVAS_W;
-      cropperCanvas.height = CANVAS_H;
-
-      var cropImg = null, cropScale = 1, cropIW = 0, cropIH = 0, cropOX = 0, cropOY = 0;
-      var cropX = 0, cropY = 0, cropW = 0, cropH = 0;
-      var dragging = false, dragStartX, dragStartY, dragStartCX, dragStartCY;
-
-      function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-      function drawCropper() {
-        if (!cropImg) return;
-        var ctx = cropperCtx;
-        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-        ctx.drawImage(cropImg, cropOX, cropOY, cropIW, cropIH);
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(cropX, cropY, cropW, cropH);
-        ctx.clip();
-        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-        ctx.drawImage(cropImg, cropOX, cropOY, cropIW, cropIH);
-        ctx.restore();
-        ctx.strokeStyle = '#ddc078'; ctx.lineWidth = 2;
-        ctx.strokeRect(cropX, cropY, cropW, cropH);
-        ctx.fillStyle = '#ddc078'; var cs = 8;
-        ctx.fillRect(cropX, cropY, cs, cs);
-        ctx.fillRect(cropX + cropW - cs, cropY, cs, cs);
-        ctx.fillRect(cropX, cropY + cropH - cs, cs, cs);
-        ctx.fillRect(cropX + cropW - cs, cropY + cropH - cs, cs, cs);
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(cropX + cropW / 3, cropY); ctx.lineTo(cropX + cropW / 3, cropY + cropH);
-        ctx.moveTo(cropX + cropW * 2 / 3, cropY); ctx.lineTo(cropX + cropW * 2 / 3, cropY + cropH);
-        ctx.moveTo(cropX, cropY + cropH / 3); ctx.lineTo(cropX + cropW, cropY + cropH / 3);
-        ctx.moveTo(cropX, cropY + cropH * 2 / 3); ctx.lineTo(cropX + cropW, cropY + cropH * 2 / 3);
-        ctx.stroke();
-      }
-      function initCropBox() {
-        cropH = cropIH * 0.9;
-        cropW = cropH * 0.75;
-        if (cropW > cropIW) { cropW = cropIW; cropH = cropW / 0.75; }
-        cropX = cropOX + (cropIW - cropW) / 2;
-        cropY = cropOY + (cropIH - cropH) / 2;
-        drawCropper();
-      }
-      function applyZoom(ratio, cx, cy) {
-        var newH = clamp(cropH * ratio, 60, cropIH);
-        var newW = newH * 0.75;
-        var kx = cx !== undefined ? cx : cropX + cropW / 2;
-        var ky = cy !== undefined ? cy : cropY + cropH / 2;
-        var scale = newW / cropW;
-        cropW = newW; cropH = newH;
-        cropX = clamp(kx - (kx - cropX) * scale, cropOX, cropOX + cropIW - cropW);
-        cropY = clamp(ky - (ky - cropY) * scale, cropOY, cropOY + cropIH - cropH);
-        drawCropper();
-      }
-
-      document.getElementById('coverFileInput').addEventListener('change', function () {
-        var file = document.getElementById('coverFileInput').files[0];
-        if (!file) return;
-        var reader = new FileReader();
-        reader.onload = function (e) {
-          cropImg = new Image();
-          cropImg.onload = function () {
-            var scaleW = CANVAS_W / cropImg.width;
-            var scaleH = CANVAS_H / cropImg.height;
-            cropScale = Math.min(scaleW, scaleH);
-            cropIW = cropImg.width * cropScale;
-            cropIH = cropImg.height * cropScale;
-            cropOX = (CANVAS_W - cropIW) / 2;
-            cropOY = (CANVAS_H - cropIH) / 2;
-            initCropBox();
-            cropperPanel.classList.add('active');
-          };
-          cropImg.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-
-      cropperMain.addEventListener('wheel', function (e) {
-        if (!cropImg) return;
-        e.preventDefault();
-        var rect = cropperMain.getBoundingClientRect();
-        var mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-        var my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-        applyZoom(e.deltaY < 0 ? 1.1 : 0.9, mx, my);
-      }, { passive: false });
-
-      cropperMain.addEventListener('mousedown', function (e) {
-        if (!cropImg) return;
-        var rect = cropperMain.getBoundingClientRect();
-        var mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-        var my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-        if (mx >= cropX && mx <= cropX + cropW && my >= cropY && my <= cropY + cropH) {
-          dragging = true;
-          dragStartX = mx; dragStartY = my;
-          dragStartCX = cropX; dragStartCY = cropY;
-          e.preventDefault();
-        }
-      });
-      window.addEventListener('mousemove', function (e) {
-        if (!dragging) return;
-        var rect = cropperMain.getBoundingClientRect();
-        var mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-        var my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-        cropX = clamp(dragStartCX + (mx - dragStartX), cropOX, cropOX + cropIW - cropW);
-        cropY = clamp(dragStartCY + (my - dragStartY), cropOY, cropOY + cropIH - cropH);
-        drawCropper();
-      });
-      window.addEventListener('mouseup', function () { dragging = false; });
-
-      document.getElementById('cropperCropBtn').addEventListener('click', function () {
-        if (!cropImg) return;
-        var outCanvas = document.createElement('canvas');
-        outCanvas.width = OUT_W; outCanvas.height = OUT_H;
-        var octx = outCanvas.getContext('2d');
-        var sx = (cropX - cropOX) / cropScale;
-        var sy = (cropY - cropOY) / cropScale;
-        var sw = cropW / cropScale;
-        var sh = cropH / cropScale;
-        octx.drawImage(cropImg, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
-
-        coverUploadStatus.textContent = '上传中…';
-        coverUploadStatus.className = 'cover-upload-status';
-        outCanvas.toBlob(function (blob) {
-          var fd = new FormData();
-          fd.append('file', blob, 'cover.webp');
-
-          // 提交投稿编辑时用管理员上传接口，封面进正式目录
-          var uploadUrl = editingSubmissionId ? '/api/admin/covers' : '/api/public/covers';
-          api(uploadUrl, { method: 'POST', body: fd })
-            .then(function (data) {
-              formCoverPath = data.coverPath;
-              document.getElementById('coverPreview').innerHTML = '<img src="' + formCoverPath + '" alt="封面预览">';
-              coverUploadStatus.textContent = '上传成功';
-              coverUploadStatus.className = 'cover-upload-status success';
-              cropImg = null;
-              cropperPanel.classList.remove('active');
-              document.getElementById('coverFileInput').value = '';
-            })
-            .catch(function (err) {
-              coverUploadStatus.textContent = err.message;
-              coverUploadStatus.className = 'cover-upload-status error';
-            });
-        }, 'image/webp', 0.85);
-      });
-
-      document.getElementById('cropperCancelBtn').addEventListener('click', function () {
-        cropImg = null;
-        cropperPanel.classList.remove('active');
-        document.getElementById('coverFileInput').value = '';
-        cropperCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-      });
-    }
-
-    /* ── 编辑弹窗 ── */
     function openEditor(id) {
-      editingId = id;
-      formCoverPath = '';
-      const entry = id ? entries.find(e => e.id === id) : null;
-      entryModalTitle.textContent = id ? '编辑条目' : '新建条目';
-
-      const title = entry?.title || '';
-      const author = entry?.author || '';
-      const summary = entry?.summary || '';
-      const targetUrl = entry?.targetUrl || '';
-      const recVal = entry?.recommendValue ?? 0;
-      const cTags = entry?.contentTags || [];
-      const fTags = entry?.flavorTags || [];
-      const existingCover = entry?.coverPath || '';
-      if (existingCover) formCoverPath = existingCover;
-
-      entryModalBody.innerHTML = `
-        <div class="form-group full">
-          <span class="form-label">封面图片</span>
-          <div class="cover-upload-area">
-            <div class="cover-preview" id="coverPreview">
-              ${formCoverPath
-                ? `<img src="${escAttr(formCoverPath)}" alt="封面预览" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span class="cover-preview-placeholder" ${formCoverPath?'style="display:none"':''}>&#9876;</span>`
-                : '<span class="cover-preview-placeholder">&#9876;</span>'}
-            </div>
-            <div class="cover-upload-controls">
-              <input type="file" class="input" id="coverFileInput" accept="image/png,image/jpeg,image/webp,image/gif">
-              <div class="cropper-panel" id="cropperPanel">
-                <div class="cropper-main" id="cropperMain">
-                  <canvas id="cropperCanvas"></canvas>
-                </div>
-                <div class="cropper-actions">
-                  <span class="cropper-hint">拖拽移动 · 滚轮缩放</span>
-                  <button class="btn btn--gold btn--sm" id="cropperCropBtn" type="button">确认裁剪</button>
-                  <button class="btn btn--ghost btn--sm" id="cropperCancelBtn" type="button">取消</button>
-                </div>
-              </div>
-              <span class="cover-upload-status" id="coverUploadStatus"></span>
-            </div>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <span class="form-label"><span class="required">*</span> 标题</span>
-            <input class="input" id="formTitle" value="${escAttr(title)}" placeholder="资源标题">
-          </div>
-          <div class="form-group">
-            <span class="form-label">作者</span>
-            <input class="input" id="formAuthor" value="${escAttr(author)}" placeholder="作者名称（选填）">
-          </div>
-        </div>
-        <div class="form-group full">
-          <span class="form-label">内容标签 <span class="form-hint">— 可选，输入标签后按Enter添加</span></span>
-          <div class="chip-input-wrap" id="chipContentTags">
-            ${cTags.map(t=>`<span class="chip" data-tag="${escAttr(t)}">${escHtml(t)}<button class="chip-remove">&times;</button></span>`).join('')}
-            <input class="chip-input" placeholder="输入标签…">
-          </div>
-        </div>
-        <div class="form-group full">
-          <span class="form-label">风味标签 <span class="form-hint">— 可选，输入标签后按Enter添加</span></span>
-          <div class="chip-input-wrap" id="chipFlavorTags">
-            ${fTags.map(t=>`<span class="chip" data-tag="${escAttr(t)}">${escHtml(t)}<button class="chip-remove">&times;</button></span>`).join('')}
-            <input class="chip-input" placeholder="输入标签…">
-          </div>
-        </div>
-        <div class="form-group">
-          <span class="form-label">推荐值</span>
-          <input class="input" id="formRecValue" type="number" min="0" value="${recVal}" placeholder="0">
-        </div>
-        <div class="form-group">
-          <span class="form-label"><span class="required">*</span> 跳转链接</span>
-          <input class="input" id="formTargetUrl" value="${escAttr(targetUrl)}" placeholder="https://…">
-        </div>
-        <div class="form-group full">
-          <span class="form-label">简介 <span class="form-hint">— 可选，悬停卡片时显示</span></span>
-          <textarea class="textarea" id="formSummary" placeholder="简介…">${escHtml(summary)}</textarea>
-        </div>`;
-
-      bindChipInput('chipContentTags');
-      bindChipInput('chipFlavorTags');
-
-      // ── 裁剪器 ──
-      const cropperPanel = $('#cropperPanel');
-      const cropperCanvas = $('#cropperCanvas');
-      const cropperCtx = cropperCanvas.getContext('2d');
-      const cropperMain = $('#cropperMain');
-      const coverUploadStatus = $('#coverUploadStatus');
-
-      const OUT_W = 600, OUT_H = 800;
-      const CANVAS_W = 360, CANVAS_H = 480;
-
-      cropperCanvas.width = CANVAS_W;
-      cropperCanvas.height = CANVAS_H;
-
-      let cropImg = null;
-      let cropScale = 1;
-      let cropIW = 0, cropIH = 0, cropOX = 0, cropOY = 0;
-      let cropX = 0, cropY = 0, cropW = 0, cropH = 0;
-      let dragging = false;
-      let dragStartX = 0, dragStartY = 0, dragStartCX = 0, dragStartCY = 0;
-
-      function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-      function applyZoom(ratio, cx, cy) {
-        // ratio: >1 放大, <1 缩小. (cx,cy) 为缩放中心点
-        const newH = clamp(cropH * ratio, 60, cropIH);
-        const newW = newH * 0.75;
-        const kx = (cx !== undefined ? cx : cropX + cropW/2);
-        const ky = (cy !== undefined ? cy : cropY + cropH/2);
-        const scale = newW / cropW;
-        cropW = newW; cropH = newH;
-        cropX = clamp(kx - (kx - cropX) * scale, cropOX, cropOX + cropIW - cropW);
-        cropY = clamp(ky - (ky - cropY) * scale, cropOY, cropOY + cropIH - cropH);
-        drawCropper();
-      }
-
-      function drawCropper() {
-        if (!cropImg) return;
-        const ctx = cropperCtx;
-        const cw = CANVAS_W, ch = CANVAS_H;
-        ctx.clearRect(0, 0, cw, ch);
-        ctx.drawImage(cropImg, cropOX, cropOY, cropIW, cropIH);
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(0, 0, cw, ch);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(cropX, cropY, cropW, cropH);
-        ctx.clip();
-        ctx.clearRect(0, 0, cw, ch);
-        ctx.drawImage(cropImg, cropOX, cropOY, cropIW, cropIH);
-        ctx.restore();
-        ctx.strokeStyle = '#ddc078';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(cropX, cropY, cropW, cropH);
-        const cs = 8;
-        ctx.fillStyle = '#ddc078';
-        [[cropX,cropY],[cropX+cropW-cs,cropY],[cropX,cropY+cropH-cs],[cropX+cropW-cs,cropY+cropH-cs]]
-          .forEach(([cx,cy]) => ctx.fillRect(cx, cy, cs, cs));
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(cropX + cropW/3, cropY); ctx.lineTo(cropX + cropW/3, cropY + cropH);
-        ctx.moveTo(cropX + cropW*2/3, cropY); ctx.lineTo(cropX + cropW*2/3, cropY + cropH);
-        ctx.moveTo(cropX, cropY + cropH/3); ctx.lineTo(cropX + cropW, cropY + cropH/3);
-        ctx.moveTo(cropX, cropY + cropH*2/3); ctx.lineTo(cropX + cropW, cropY + cropH*2/3);
-        ctx.stroke();
-      }
-
-      function initCropBox() {
-        // 初始裁剪框：90% 图片高度，居中
-        cropH = cropIH * 0.9;
-        cropW = cropH * 0.75;
-        if (cropW > cropIW) { cropW = cropIW; cropH = cropW / 0.75; }
-        cropX = cropOX + (cropIW - cropW) / 2;
-        cropY = cropOY + (cropIH - cropH) / 2;
-        drawCropper();
-      }
-
-      function initCropper(file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          cropImg = new Image();
-          cropImg.onload = () => {
-            const scaleW = CANVAS_W / cropImg.width;
-            const scaleH = CANVAS_H / cropImg.height;
-            cropScale = Math.min(scaleW, scaleH);
-            cropIW = cropImg.width * cropScale;
-            cropIH = cropImg.height * cropScale;
-            cropOX = (CANVAS_W - cropIW) / 2;
-            cropOY = (CANVAS_H - cropIH) / 2;
-            initCropBox();
-            cropperPanel.classList.add('active');
-          };
-          cropImg.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-      }
-
-      // 选择文件
-      $('#coverFileInput').addEventListener('change', () => {
-        const file = $('#coverFileInput').files[0];
-        if (file) initCropper(file);
-      });
-
-      // 滚轮缩放
-      cropperMain.addEventListener('wheel', (e) => {
-        if (!cropImg) return;
-        e.preventDefault();
-        const rect = cropperMain.getBoundingClientRect();
-        const mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-        const my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-        applyZoom(e.deltaY < 0 ? 1.1 : 0.9, mx, my);
-      }, { passive: false });
-
-      // 拖拽
-      cropperMain.addEventListener('mousedown', (e) => {
-        if (!cropImg) return;
-        const rect = cropperMain.getBoundingClientRect();
-        const mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-        const my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-        if (mx >= cropX && mx <= cropX + cropW && my >= cropY && my <= cropY + cropH) {
-          dragging = true;
-          dragStartX = mx; dragStartY = my;
-          dragStartCX = cropX; dragStartCY = cropY;
-          e.preventDefault();
-        }
-      });
-      window.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
-        const rect = cropperMain.getBoundingClientRect();
-        const mx = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-        const my = (e.clientY - rect.top) * (CANVAS_H / rect.height);
-        cropX = clamp(dragStartCX + (mx - dragStartX), cropOX, cropOX + cropIW - cropW);
-        cropY = clamp(dragStartCY + (my - dragStartY), cropOY, cropOY + cropIH - cropH);
-        drawCropper();
-      });
-      window.addEventListener('mouseup', () => { dragging = false; });
-
-      // 确认裁剪 → 上传
-      $('#cropperCropBtn').addEventListener('click', async () => {
-        if (!cropImg) return;
-        const outCanvas = document.createElement('canvas');
-        outCanvas.width = OUT_W; outCanvas.height = OUT_H;
-        const octx = outCanvas.getContext('2d');
-        const sx = (cropX - cropOX) / cropScale;
-        const sy = (cropY - cropOY) / cropScale;
-        const sw = cropW / cropScale;
-        const sh = cropH / cropScale;
-        octx.drawImage(cropImg, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
-
-        coverUploadStatus.textContent = '上传中…';
-        coverUploadStatus.className = 'cover-upload-status';
-        try {
-          const blob = await new Promise(resolve => outCanvas.toBlob(resolve, 'image/webp', 0.85));
-          const fd = new FormData();
-          fd.append('file', blob, 'cover.webp');
-          const data = await api('/api/admin/covers', { method: 'POST', body: fd });
-          formCoverPath = data.coverPath;
-          $('#coverPreview').innerHTML = `<img src="${escAttr(formCoverPath)}" alt="封面预览">`;
-          coverUploadStatus.textContent = '上传成功';
-          coverUploadStatus.className = 'cover-upload-status success';
-          cropImg = null;
-          cropperPanel.classList.remove('active');
-          $('#coverFileInput').value = '';
-        } catch (err) {
-          coverUploadStatus.textContent = err.message;
-          coverUploadStatus.className = 'cover-upload-status error';
-        }
-      });
-
-      // 取消
-      $('#cropperCancelBtn').addEventListener('click', () => {
-        cropImg = null;
-        cropperPanel.classList.remove('active');
-        $('#coverFileInput').value = '';
-        cropperCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-      });
-
-      entryModal.classList.add('visible');
-      document.body.style.overflow = 'hidden';
+      var entry = id ? entries.find(function (item) { return item.id === id; }) : null;
+      openResourceEditor(buildEditorConfig('entry', entry));
     }
 
     function closeEditor() {
       entryModal.classList.remove('visible');
       document.body.style.overflow = '';
-      editingId = null; editingSubmissionId = null; formCoverPath = '';
+      editingId = null;
+      currentEditor = null;
+      resourceForm = null;
+      entryModalSave.textContent = '保存';
+      entryModalBody.innerHTML = '';
     }
 
     async function saveEntry() {
-      const title = $('#formTitle')?.value.trim() || '';
-      const author = $('#formAuthor')?.value.trim() || '';
-      const cTags = getChipVals('chipContentTags');
-      const fTags = getChipVals('chipFlavorTags');
-      const recVal = parseInt($('#formRecValue')?.value || '0', 10) || 0;
-      const targetUrl = $('#formTargetUrl')?.value.trim() || '';
-      const summary = $('#formSummary')?.value.trim() || '';
+      if (!resourceForm || !currentEditor) return;
+      var body = resourceForm.collect();
 
-      if (!title) { showToast('标题不能为空', 'error'); return; }
-      if (!targetUrl) { showToast('跳转链接不能为空', 'error'); return; }
-
-      const body = { title, author, contentTags: cTags, flavorTags: fTags,
-        recommendValue: recVal, summary, targetUrl, coverPath: formCoverPath };
+      if (!body.title) { showToast('标题不能为空', 'error'); return; }
+      if (!body.targetUrl) { showToast('跳转链接不能为空', 'error'); return; }
 
       entryModalSave.disabled = true;
       try {
-        if (editingId) {
-          await api(`/api/admin/entries/${editingId}`, { method: 'PUT', body: JSON.stringify(body) });
-          showToast('条目已更新');
-        } else {
-          await api('/api/admin/entries', { method: 'POST', body: JSON.stringify(body) });
-          showToast('条目已创建');
-        }
+        await currentEditor.submit(body);
         closeEditor();
-        await loadEntries();
-      } catch (err) { showToast(err.message, 'error'); }
-      finally { entryModalSave.disabled = false; }
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        entryModalSave.disabled = false;
+      }
     }
 
     function confirmDelete(id) {
@@ -1554,39 +1078,6 @@
           await loadEntries();
         }
       } catch (err) { showToast(err.message, 'error'); }
-    }
-
-    /* ── Chip 输入 ── */
-    function bindChipInput(wrapId) {
-      const wrap = document.getElementById(wrapId); if (!wrap) return;
-      const input = wrap.querySelector('.chip-input'); if (!input) return;
-
-      wrap.querySelectorAll('.chip-remove').forEach(b =>
-        b.addEventListener('click', () => b.closest('.chip').remove()));
-
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const val = input.value.trim(); if (!val) return;
-          if (getChipVals(wrapId).includes(val)) { input.value = ''; return; }
-          const chip = document.createElement('span');
-          chip.className = 'chip'; chip.dataset.tag = val;
-          chip.innerHTML = `${escHtml(val)}<button class="chip-remove">&times;</button>`;
-          chip.querySelector('.chip-remove').addEventListener('click', () => chip.remove());
-          wrap.insertBefore(chip, input);
-          input.value = '';
-        }
-        if (e.key === 'Backspace' && input.value === '') {
-          const chips = wrap.querySelectorAll('.chip');
-          if (chips.length) chips[chips.length-1].remove();
-        }
-      });
-      wrap.addEventListener('click', (e) => { if (e.target === wrap) input.focus(); });
-    }
-
-    function getChipVals(wrapId) {
-      const wrap = document.getElementById(wrapId);
-      return wrap ? [...wrap.querySelectorAll('.chip')].map(c => c.dataset.tag).filter(Boolean) : [];
     }
 
     /* ── 事件 ── */

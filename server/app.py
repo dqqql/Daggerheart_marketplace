@@ -383,6 +383,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def serve_admin():
         return send_from_directory(str(frontend_dir / "admin"), "index.html")
 
+    @app.route("/the-great-vault/assets/<path:filename>")
+    @app.route("/assets/<path:filename>")
+    def serve_frontend_assets(filename: str):
+        return send_from_directory(str(frontend_dir / "assets"), filename)
+
     @app.route("/the-great-vault/covers/<path:filename>")
     @app.route("/marketplace/covers/<path:filename>")
     def serve_cover(filename: str):
