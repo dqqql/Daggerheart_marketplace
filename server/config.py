@@ -14,6 +14,10 @@ SECRETS_DIR = RUNTIME_DIR / "secrets"
 ADMIN_PASSWORD_FILE = SECRETS_DIR / "admin_password.txt"
 SESSION_SECRET_FILE = SECRETS_DIR / "session_secret.txt"
 
+# ── 邮件通知 ──
+DEFAULT_MAIL_FROM_NAME = "宏伟宝库"
+DEFAULT_SMTP_SECURITY = "starttls"
+
 # ── 上传限制 ──
 ALLOWED_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"})
 MAX_CONTENT_LENGTH = 8 * 1024 * 1024  # 8 MB

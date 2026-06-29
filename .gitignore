@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 server/tests/.tmp/
+.trash/
 
 # 本地开发配置
 .claude/settings.local.json

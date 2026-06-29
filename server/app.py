@@ -16,6 +16,7 @@ from flask import Flask, jsonify, request, send_from_directory, session
 from werkzeug.utils import secure_filename
 
 from server import config
+from server.mailer import send_rejection_notice
 
 
 ROOT_DIR = config.ROOT_DIR
@@ -44,10 +45,19 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         SUBMISSIONS_FILE=str(DEFAULT_SUBMISSIONS_FILE),
         COVERS_DIR=str(DEFAULT_COVERS_DIR),
         PENDING_COVERS_DIR=str(DEFAULT_PENDING_COVERS_DIR),
+        SECRETS_DIR=str(DEFAULT_SECRETS_DIR),
         ADMIN_PASSWORD_FILE=str(DEFAULT_ADMIN_PASSWORD_FILE),
         SESSION_SECRET_FILE=str(DEFAULT_SESSION_SECRET_FILE),
         ADMIN_PASSWORD=os.getenv("MARKETPLACE_ADMIN_PASSWORD"),
         SESSION_SECRET=os.getenv("MARKETPLACE_SESSION_SECRET"),
+        SMTP_HOST=os.getenv("MARKETPLACE_SMTP_HOST"),
+        SMTP_PORT=os.getenv("MARKETPLACE_SMTP_PORT"),
+        SMTP_USERNAME=os.getenv("MARKETPLACE_SMTP_USERNAME"),
+        SMTP_PASSWORD=os.getenv("MARKETPLACE_SMTP_PASSWORD"),
+        SMTP_FROM=os.getenv("MARKETPLACE_MAIL_FROM"),
+        SMTP_FROM_NAME=os.getenv("MARKETPLACE_MAIL_FROM_NAME"),
+        SMTP_SECURITY=os.getenv("MARKETPLACE_SMTP_SECURITY"),
+        MAIL_SENDER=None,
         COVER_URL_PREFIX=config.COVER_URL_PREFIX,
         PENDING_COVER_URL_PREFIX=config.PENDING_COVER_URL_PREFIX,
         MAX_CONTENT_LENGTH=MAX_CONTENT_LENGTH,
@@ -65,6 +75,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.config["SUBMISSIONS_FILE"] = str(Path(app.config["SUBMISSIONS_FILE"]).resolve())
     app.config["COVERS_DIR"] = str(Path(app.config["COVERS_DIR"]).resolve())
     app.config["PENDING_COVERS_DIR"] = str(Path(app.config["PENDING_COVERS_DIR"]).resolve())
+    app.config["SECRETS_DIR"] = str(Path(app.config["SECRETS_DIR"]).resolve())
     app.config["ADMIN_PASSWORD_FILE"] = str(
         Path(app.config["ADMIN_PASSWORD_FILE"]).resolve()
     )
@@ -360,6 +371,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.delete("/api/admin/submissions/<submission_id>")
     @require_admin_session
     def reject_submission(submission_id: str):
+        payload = request.get_json(silent=True) or {}
+        review_note = normalize_review_note(payload.get("reviewNote"))
         submissions = load_submissions(app)
         index, submission = find_submission(submissions, submission_id)
         submissions.pop(index)
@@ -368,7 +381,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         # 清理 pending 封面
         cover_path = submission.get("coverPath", "")
         delete_pending_cover_file(app, cover_path)
-        return jsonify({"rejectedId": submission_id})
+        notification = send_submission_rejection_notification(app, submission, review_note)
+        return jsonify({"rejectedId": submission_id, "notification": notification})
 
     # ── 开发环境：serve 前端静态文件与封面 ──
     frontend_dir = ROOT_DIR / "frontend"
@@ -616,6 +630,19 @@ def normalize_external_url(value: Any) -> str:
     return url
 
 
+def normalize_feedback_email(value: Any) -> str:
+    email = normalize_optional_text(value).lower()
+    if not email:
+        return ""
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise ValidationError("feedbackEmail must be a valid email address")
+    return email
+
+
+def normalize_review_note(value: Any) -> str:
+    return normalize_optional_text(value)
+
+
 def normalize_cover_path(value: Any, cover_url_prefix: str) -> str:
     cover_path = normalize_optional_text(value)
     if not cover_path:
@@ -713,6 +740,7 @@ def normalize_submission(
     recommend_value = 0  # 投稿推荐值固定为 0
     summary = normalize_optional_text(payload.get("summary"))
     target_url = normalize_external_url(payload.get("targetUrl"))
+    feedback_email = normalize_feedback_email(payload.get("feedbackEmail"))
 
     # 封面可以是正式路径或 pending 路径
     cover_path = normalize_optional_text(payload.get("coverPath"))
@@ -742,6 +770,7 @@ def normalize_submission(
         "summary": summary,
         "coverPath": cover_path,
         "targetUrl": target_url,
+        "feedbackEmail": feedback_email,
         "createdAt": created_at,
         "updatedAt": now_iso(),
     }
@@ -800,6 +829,55 @@ def delete_pending_cover_file(app: Flask, cover_path: str) -> None:
 
     if candidate.exists():
         candidate.unlink()
+
+
+def send_submission_rejection_notification(
+    app: Flask,
+    submission: dict[str, Any],
+    review_note: str,
+) -> dict[str, str]:
+    recipient = normalize_optional_text(submission.get("feedbackEmail"))
+    if not recipient:
+        return {"status": "skipped", "reason": "no_feedback_email"}
+
+    sender = app.config.get("MAIL_SENDER")
+    if callable(sender):
+        try:
+            result = sender(
+                recipient=recipient,
+                title=submission.get("title", ""),
+                review_note=review_note,
+            )
+            return normalize_notification_result(result)
+        except Exception as exc:  # noqa: BLE001 - 邮件失败不能阻塞驳回
+            return {
+                "status": "failed",
+                "reason": "send_failed",
+                "message": str(exc)[:200] or exc.__class__.__name__,
+            }
+
+    return send_rejection_notice(
+        app_config=app.config,
+        secret_dir=Path(app.config["SECRETS_DIR"]),
+        recipient=recipient,
+        title=submission.get("title", ""),
+        review_note=review_note,
+    )
+
+
+def normalize_notification_result(result: Any) -> dict[str, str]:
+    if not isinstance(result, dict):
+        return {"status": "sent"}
+
+    status = normalize_optional_text(result.get("status")) or "sent"
+    normalized: dict[str, str] = {"status": status}
+    reason = normalize_optional_text(result.get("reason"))
+    message = normalize_optional_text(result.get("message"))
+    if reason:
+        normalized["reason"] = reason
+    if message:
+        normalized["message"] = message[:200]
+    return normalized
 
 
 def now_iso() -> str:

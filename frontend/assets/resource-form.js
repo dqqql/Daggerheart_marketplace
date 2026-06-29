@@ -339,6 +339,12 @@
       + '<input class="input" data-field="author" value="' + escAttr(values.author) + '" placeholder="制作者署名">'
       + '</div>'
       + '</div>'
+      + (config.showFeedbackEmail
+        ? '<div class="form-group full">'
+          + '<span class="form-label">反馈邮箱 <span class="form-hint">— 可选，仅审核驳回时用于接收意见</span></span>'
+          + '<input class="input" data-field="feedbackEmail" type="email" value="' + escAttr(values.feedbackEmail) + '" placeholder="name@example.com">'
+          + '</div>'
+        : '')
       + '<div class="form-group full">'
       + '<span class="form-label">内容标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>'
       + '<div class="chip-input-wrap" data-field="contentTags">'
@@ -380,14 +386,16 @@
       recommendValue: initialValues.recommendValue || 0,
       summary: initialValues.summary || '',
       targetUrl: initialValues.targetUrl || '',
-      coverPath: initialValues.coverPath || ''
+      coverPath: initialValues.coverPath || '',
+      feedbackEmail: initialValues.feedbackEmail || ''
     };
 
     options.bodyEl.innerHTML = createMarkup({
       escHtml: escHtml,
       escAttr: escAttr,
       values: values,
-      showRecommendValue: options.showRecommendValue !== false
+      showRecommendValue: options.showRecommendValue !== false,
+      showFeedbackEmail: options.showFeedbackEmail === true
     });
 
     var titleInput = options.bodyEl.querySelector('[data-field="title"]');
@@ -395,6 +403,7 @@
     var contentWrap = options.bodyEl.querySelector('[data-field="contentTags"]');
     var flavorWrap = options.bodyEl.querySelector('[data-field="flavorTags"]');
     var recInput = options.bodyEl.querySelector('[data-field="recommendValue"]');
+    var feedbackEmailInput = options.bodyEl.querySelector('[data-field="feedbackEmail"]');
     var targetInput = options.bodyEl.querySelector('[data-field="targetUrl"]');
     var summaryInput = options.bodyEl.querySelector('[data-field="summary"]');
     var cropper = createCropper(options.bodyEl, {
@@ -421,6 +430,9 @@
       if (options.showRecommendValue !== false) {
         payload.recommendValue = parseInt(recInput.value || '0', 10) || 0;
       }
+      if (options.showFeedbackEmail === true) {
+        payload.feedbackEmail = feedbackEmailInput.value.trim();
+      }
       return payload;
     }
 
@@ -433,12 +445,14 @@
         recommendValue: 0,
         summary: '',
         targetUrl: '',
-        coverPath: ''
+        coverPath: '',
+        feedbackEmail: ''
       };
       createResourceForm({
         bodyEl: options.bodyEl,
         uploadCover: options.uploadCover,
         showRecommendValue: options.showRecommendValue,
+        showFeedbackEmail: options.showFeedbackEmail,
         initialValues: merged,
         escHtml: escHtml,
         escAttr: escAttr

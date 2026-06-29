@@ -8,6 +8,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from server.app import create_app
+from server.mailer import load_smtp_config, send_rejection_notice
 
 
 class MarketplaceServerTestCase(unittest.TestCase):
@@ -32,6 +33,7 @@ class MarketplaceServerTestCase(unittest.TestCase):
                 "SUBMISSIONS_FILE": str(self.submissions_file),
                 "COVERS_DIR": str(self.covers_dir),
                 "PENDING_COVERS_DIR": str(self.pending_covers_dir),
+                "SECRETS_DIR": str(self.secrets_dir),
                 "ADMIN_PASSWORD_FILE": str(self.secrets_dir / "admin_password.txt"),
                 "SESSION_SECRET_FILE": str(self.secrets_dir / "session_secret.txt"),
                 "ADMIN_PASSWORD": "test-password",
@@ -245,6 +247,7 @@ class MarketplaceServerTestCase(unittest.TestCase):
         payload = {
             "title": "社区投稿模组",
             "author": "社区作者",
+            "feedbackEmail": " Creator@Example.COM ",
             "contentTags": ["模组", "探索"],
             "flavorTags": ["克苏鲁"],
             "summary": "一个由社区提交的模组。",
@@ -269,6 +272,7 @@ class MarketplaceServerTestCase(unittest.TestCase):
         submissions = submissions_resp.get_json()["submissions"]
         self.assertEqual(len(submissions), 1)
         self.assertEqual(submissions[0]["title"], "社区投稿模组")
+        self.assertEqual(submissions[0]["feedbackEmail"], "creator@example.com")
 
     def test_submit_entry_missing_fields(self) -> None:
         """缺标题或缺目标链接 → 400。"""
@@ -285,6 +289,18 @@ class MarketplaceServerTestCase(unittest.TestCase):
             json={"title": "test", "author": "test"},
         )
         self.assertEqual(resp2.status_code, 400)
+
+    def test_submit_entry_invalid_feedback_email(self) -> None:
+        """反馈邮箱格式明显非法 → 400。"""
+        resp = self.client.post(
+            "/api/public/submissions",
+            json={
+                "title": "带错误邮箱的投稿",
+                "targetUrl": "https://example.com/bad-email",
+                "feedbackEmail": "not-an-email",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
 
     def test_submissions_auth_required(self) -> None:
         """所有 admin submissions 端点未登录时返回 401。"""
@@ -361,11 +377,13 @@ class MarketplaceServerTestCase(unittest.TestCase):
             json={
                 "title": "修改后的标题",
                 "author": "修改作者",
+                "feedbackEmail": "fixed@example.com",
                 "targetUrl": "https://example.com/edited",
             },
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json()["submission"]["title"], "修改后的标题")
+        self.assertEqual(resp.get_json()["submission"]["feedbackEmail"], "fixed@example.com")
 
         # 再次获取确认持久化
         updated = self.client.get("/api/admin/submissions").get_json()["submissions"]
@@ -395,6 +413,7 @@ class MarketplaceServerTestCase(unittest.TestCase):
                 "summary": "",
                 "coverPath": pending_cover_path,
                 "targetUrl": "https://example.com/approve-me",
+                "feedbackEmail": "submitter@example.com",
             },
         )
 
@@ -421,6 +440,11 @@ class MarketplaceServerTestCase(unittest.TestCase):
         self.assertEqual(approved["likeCount"], 0)
         self.assertEqual(approved["likedBy"], [])
         self.assertTrue(approved["id"].startswith("dhm_"))
+        self.assertNotIn("feedbackEmail", approved)
+
+        bootstrap_entries = self.client.get("/api/public/bootstrap").get_json()["entries"]
+        public_entry = next(e for e in bootstrap_entries if e["title"] == "待通过条目")
+        self.assertNotIn("feedbackEmail", public_entry)
 
         # 封面应从 pending 迁移到正式目录
         # pending 目录下不应再有该文件
@@ -458,6 +482,10 @@ class MarketplaceServerTestCase(unittest.TestCase):
         # 驳回
         reject_resp = self.client.delete(f"/api/admin/submissions/{sid}")
         self.assertEqual(reject_resp.status_code, 200)
+        self.assertEqual(
+            reject_resp.get_json()["notification"],
+            {"status": "skipped", "reason": "no_feedback_email"},
+        )
 
         # submissions 应为空
         self.assertEqual(
@@ -471,6 +499,165 @@ class MarketplaceServerTestCase(unittest.TestCase):
         # pending 封面应被清理
         pending_file = self.covers_dir / "pending" / pending_filename
         self.assertFalse(pending_file.exists(), "pending cover should be deleted on reject")
+
+    def test_reject_submission_sends_feedback_email_when_configured(self) -> None:
+        """驳回带反馈邮箱的投稿 → 调用邮件发送器并传入审阅意见。"""
+        sent: list[dict[str, str]] = []
+
+        def fake_mailer(**kwargs):
+            sent.append(kwargs)
+            return {"status": "sent"}
+
+        self.app.config["MAIL_SENDER"] = fake_mailer
+        self.client.post(
+            "/api/public/submissions",
+            json={
+                "title": "需修改投稿",
+                "targetUrl": "https://example.com/rework",
+                "feedbackEmail": "submitter@example.com",
+            },
+        )
+        self.login()
+        submissions = self.client.get("/api/admin/submissions").get_json()["submissions"]
+        sid = submissions[0]["id"]
+
+        resp = self.client.delete(
+            f"/api/admin/submissions/{sid}",
+            json={"reviewNote": "请补充作者信息。"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["notification"], {"status": "sent"})
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["recipient"], "submitter@example.com")
+        self.assertEqual(sent[0]["title"], "需修改投稿")
+        self.assertEqual(sent[0]["review_note"], "请补充作者信息。")
+
+    def test_reject_submission_skips_email_when_smtp_not_configured(self) -> None:
+        """未配置 SMTP 时，驳回仍成功，邮件状态为跳过。"""
+        self.client.post(
+            "/api/public/submissions",
+            json={
+                "title": "有邮箱但未配置 SMTP",
+                "targetUrl": "https://example.com/no-smtp",
+                "feedbackEmail": "submitter@example.com",
+            },
+        )
+        self.login()
+        sid = self.client.get("/api/admin/submissions").get_json()["submissions"][0]["id"]
+
+        resp = self.client.delete(
+            f"/api/admin/submissions/{sid}",
+            json={"reviewNote": "暂不收录。"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.get_json()["notification"],
+            {"status": "skipped", "reason": "not_configured"},
+        )
+
+    def test_reject_submission_reports_mail_failure_without_rollback(self) -> None:
+        """邮件失败不回滚驳回，响应返回 failed 状态。"""
+        def failing_mailer(**_kwargs):
+            raise RuntimeError("SMTP auth failed")
+
+        self.app.config["MAIL_SENDER"] = failing_mailer
+        self.client.post(
+            "/api/public/submissions",
+            json={
+                "title": "发信失败投稿",
+                "targetUrl": "https://example.com/mail-fail",
+                "feedbackEmail": "submitter@example.com",
+            },
+        )
+        self.login()
+        sid = self.client.get("/api/admin/submissions").get_json()["submissions"][0]["id"]
+
+        resp = self.client.delete(
+            f"/api/admin/submissions/{sid}",
+            json={"reviewNote": "无法通过。"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["notification"]["status"], "failed")
+        self.assertEqual(resp.get_json()["notification"]["reason"], "send_failed")
+        remaining = self.client.get("/api/admin/submissions").get_json()["submissions"]
+        self.assertEqual(remaining, [])
+
+    def test_mailer_loads_smtp_config_from_app_config(self) -> None:
+        """SMTP 配置可从运行配置读取。"""
+        smtp_config = load_smtp_config(
+            {
+                "SMTP_HOST": "smtp.example.com",
+                "SMTP_PORT": "587",
+                "SMTP_USERNAME": "sender@example.com",
+                "SMTP_PASSWORD": "app-password",
+                "SMTP_FROM": "",
+                "SMTP_FROM_NAME": "宏伟宝库测试",
+                "SMTP_SECURITY": "starttls",
+            },
+            self.secrets_dir,
+        )
+
+        self.assertIsNotNone(smtp_config)
+        self.assertEqual(smtp_config.host, "smtp.example.com")
+        self.assertEqual(smtp_config.port, 587)
+        self.assertEqual(smtp_config.from_email, "sender@example.com")
+        self.assertEqual(smtp_config.from_name, "宏伟宝库测试")
+
+    def test_mailer_loads_smtp_config_from_json_secret(self) -> None:
+        """SMTP 配置可从单个 smtp.json 读取。"""
+        self.secrets_dir.mkdir(parents=True, exist_ok=True)
+        (self.secrets_dir / "smtp.json").write_text(
+            json.dumps(
+                {
+                    "host": "smtp.163.com",
+                    "port": 25,
+                    "username": "sender@163.com",
+                    "password": "auth-code",
+                    "from": "sender@163.com",
+                    "fromName": "宏伟宝库",
+                    "security": "none",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        smtp_config = load_smtp_config({}, self.secrets_dir)
+
+        self.assertIsNotNone(smtp_config)
+        self.assertEqual(smtp_config.host, "smtp.163.com")
+        self.assertEqual(smtp_config.port, 25)
+        self.assertEqual(smtp_config.username, "sender@163.com")
+        self.assertEqual(smtp_config.security, "none")
+
+    def test_mailer_sends_rejection_notice_with_safe_content(self) -> None:
+        """SMTP 配置完整时构造驳回邮件并调用发送函数。"""
+        app_config = {
+            "SMTP_HOST": "smtp.example.com",
+            "SMTP_PORT": "587",
+            "SMTP_USERNAME": "sender@example.com",
+            "SMTP_PASSWORD": "app-password",
+            "SMTP_FROM": "",
+            "SMTP_FROM_NAME": "宏伟宝库测试",
+            "SMTP_SECURITY": "starttls",
+        }
+        with patch("server.mailer.send_email") as mocked_send:
+            result = send_rejection_notice(
+                app_config=app_config,
+                secret_dir=self.secrets_dir,
+                recipient="submitter@example.com",
+                title="待修改资源",
+                review_note="请补充可访问链接。",
+            )
+
+        self.assertEqual(result, {"status": "sent"})
+        mocked_send.assert_called_once()
+        message = mocked_send.call_args.args[1]
+        self.assertIn("待修改资源", message["Subject"])
+        self.assertIn("请补充可访问链接。", message.get_content())
 
     def test_approved_entry_visible_publicly(self) -> None:
         """通过后的条目在 /api/public/bootstrap 中可见。"""

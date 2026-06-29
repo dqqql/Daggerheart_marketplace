@@ -536,6 +536,37 @@
     .confirm-text { font-size: 14px; margin-bottom: 20px; color: var(--text-primary); }
     .confirm-actions { display: flex; justify-content: center; gap: 10px; }
 
+    .review-overlay {
+      position: fixed; inset: 0; z-index: 250;
+      background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .review-overlay.visible { opacity: 1; pointer-events: all; }
+    .review-box {
+      width: 480px; max-width: 92vw;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-danger);
+      border-radius: var(--radius-lg);
+      padding: 24px 28px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+    }
+    [data-theme="light"] .review-box { box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+    .review-title {
+      font-family: var(--font-display);
+      font-size: 15px;
+      color: var(--danger-hover);
+      margin-bottom: 8px;
+    }
+    .review-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      line-height: 1.6;
+    }
+    .review-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
     /* ══════════════════════════════════════════
        Scrollbar
        ══════════════════════════════════════════ */
@@ -659,6 +690,22 @@
     </div>
   </div>
 
+  <!-- 驳回审阅意见 -->
+  <div class="review-overlay" id="rejectOverlay">
+    <div class="review-box">
+      <div class="review-title" id="rejectTitle">驳回投稿</div>
+      <div class="review-meta" id="rejectMeta"></div>
+      <div class="field">
+        <label class="field-label" for="rejectNote">审阅意见</label>
+        <textarea class="textarea" id="rejectNote" placeholder="写给投稿者的修改意见…"></textarea>
+      </div>
+      <div class="review-actions">
+        <button class="btn btn--ghost" id="rejectCancel">取消</button>
+        <button class="btn btn--danger" id="rejectOk">确认驳回</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
@@ -711,11 +758,18 @@
     const confirmText = $('#confirmText');
     const confirmCancel = $('#confirmCancel');
     const confirmOk = $('#confirmOk');
+    const rejectOverlay = $('#rejectOverlay');
+    const rejectTitle = $('#rejectTitle');
+    const rejectMeta = $('#rejectMeta');
+    const rejectNote = $('#rejectNote');
+    const rejectCancel = $('#rejectCancel');
+    const rejectOk = $('#rejectOk');
     const toast = $('#toast');
 
     let entries = [];
     let editingId = null;
     let pendingDeleteId = null;
+    let pendingRejectId = null;
 
     /* ── API ── */
     async function api(path, opts = {}) {
@@ -903,7 +957,8 @@
         return '<div class="entry-row">'
           + '<div class="entry-row-cover">' + thumb + '</div>'
           + '<div><div class="entry-row-title">' + escHtml(s.title) + '</div>'
-          + '<div class="entry-row-author">' + escHtml(s.author) + '</div></div>'
+          + '<div class="entry-row-author">' + escHtml(s.author) + '</div>'
+          + '<div class="entry-row-author">' + (s.feedbackEmail ? '反馈：' + escHtml(s.feedbackEmail) : '未留反馈邮箱') + '</div></div>'
           + '<div class="entry-row-tags">'
           + (s.contentTags || []).slice(0, 3).map(function (t) { return '<span class="entry-row-tag">' + escHtml(t) + '</span>'; }).join('')
           + ((s.contentTags || []).length > 3 ? '<span class="entry-row-tag">+' + (s.contentTags.length - 3) + '</span>' : '')
@@ -982,6 +1037,7 @@
       resourceForm = window.ResourceForm.create({
         bodyEl: entryModalBody,
         showRecommendValue: true,
+        showFeedbackEmail: config.mode === 'submission',
         initialValues: config.initialValues,
         uploadCover: async function (formData) {
           return api('/api/admin/covers', { method: 'POST', body: formData });
@@ -1018,9 +1074,14 @@
     async function rejectSubmission(id) {
       var s = submissions.find(function (x) { return x.id === id; });
       if (!s) return;
-      pendingDeleteId = id;
-      confirmText.textContent = '确定要驳回「' + (s.title || id) + '」吗？此操作不可恢复。';
-      confirmOverlay.classList.add('visible');
+      pendingRejectId = id;
+      rejectTitle.textContent = '驳回「' + (s.title || id) + '」';
+      rejectMeta.textContent = s.feedbackEmail
+        ? '将尝试发送审阅意见到：' + s.feedbackEmail
+        : '该投稿未留下反馈邮箱；驳回后不会发送邮件。';
+      rejectNote.value = '';
+      rejectOverlay.classList.add('visible');
+      rejectNote.focus();
     }
 
     function openEditor(id) {
@@ -1066,18 +1127,51 @@
     async function doDelete() {
       if (!pendingDeleteId) return;
       try {
-        if (pendingDeleteId.startsWith('sub_')) {
-          await api('/api/admin/submissions/' + pendingDeleteId, { method: 'DELETE' });
-          showToast('已驳回');
-          submissions = submissions.filter(function (x) { return x.id !== pendingDeleteId; });
-          renderSubmissionList();
-          updateSubmissionBadge();
-        } else {
-          await api('/api/admin/entries/' + pendingDeleteId, { method: 'DELETE' });
-          showToast('条目已删除');
-          await loadEntries();
-        }
+        await api('/api/admin/entries/' + pendingDeleteId, { method: 'DELETE' });
+        showToast('条目已删除');
+        await loadEntries();
       } catch (err) { showToast(err.message, 'error'); }
+    }
+
+    function closeRejectDialog() {
+      rejectOverlay.classList.remove('visible');
+      pendingRejectId = null;
+      rejectNote.value = '';
+    }
+
+    function formatRejectToast(notification) {
+      if (!notification || notification.status === 'sent') return '已驳回，邮件已发送';
+      if (notification.status === 'skipped') {
+        if (notification.reason === 'no_feedback_email') return '已驳回，未留邮箱';
+        if (notification.reason === 'not_configured') return '已驳回，SMTP 未配置';
+        return '已驳回，邮件已跳过';
+      }
+      if (notification.status === 'failed') {
+        return '已驳回，邮件发送失败：' + (notification.message || '未知错误');
+      }
+      return '已驳回';
+    }
+
+    async function doReject() {
+      if (!pendingRejectId) return;
+      var id = pendingRejectId;
+      rejectOk.disabled = true;
+      try {
+        var result = await api('/api/admin/submissions/' + id, {
+          method: 'DELETE',
+          body: JSON.stringify({ reviewNote: rejectNote.value.trim() })
+        });
+        closeRejectDialog();
+        var failed = result.notification && result.notification.status === 'failed';
+        showToast(formatRejectToast(result.notification), failed ? 'error' : '');
+        submissions = submissions.filter(function (x) { return x.id !== id; });
+        renderSubmissionList();
+        updateSubmissionBadge();
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        rejectOk.disabled = false;
+      }
     }
 
     /* ── 事件 ── */
@@ -1132,7 +1226,6 @@
 
     entryModalClose.addEventListener('click', closeEditor);
     entryModalCancel.addEventListener('click', closeEditor);
-    entryModal.addEventListener('click', (e) => { if (e.target === entryModal) closeEditor(); });
     entryModalSave.addEventListener('click', saveEntry);
 
     confirmCancel.addEventListener('click', () => { confirmOverlay.classList.remove('visible'); pendingDeleteId = null; });
@@ -1141,16 +1234,8 @@
       await doDelete();
       pendingDeleteId = null;
     });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        if (entryModal.classList.contains('visible')) closeEditor();
-        if (confirmOverlay.classList.contains('visible')) {
-          confirmOverlay.classList.remove('visible');
-          pendingDeleteId = null;
-        }
-      }
-    });
+    rejectCancel.addEventListener('click', closeRejectDialog);
+    rejectOk.addEventListener('click', doReject);
 
     function escHtml(s) {
       if (!s) return '';

@@ -20,15 +20,17 @@
 当前项目已经是一个可运行的“静态前台 + 轻量后端管理服务”组合：
 
 - 前台首页是单文件静态页，负责展示资源、搜索、筛选、分区导航、主题切换和点赞
-- 管理页是单文件静态页，负责登录、条目增改删、封面上传裁剪、JSON 导入导出
-- 后端是一个极小 Flask 服务，负责会话、条目读写、封面存储、点赞写回和静态文件开发期分发
+- 管理页是单文件静态页，负责登录、条目增改删、封面上传裁剪、投稿审核、JSON 导入导出
+- 后端是一个极小 Flask 服务，负责会话、条目读写、封面存储、点赞写回、投稿审核、驳回邮件和静态文件开发期分发
 - 运行期数据使用本地 JSON 与本地封面目录，不依赖数据库
 
 运行期路径约定仍然成立：
 
 - `data/runtime/entries.json`：条目数据
+- `data/runtime/submissions.json`：待审核投稿数据
 - `data/runtime/covers/`：封面文件
-- `data/runtime/secrets/`：管理口令和会话密钥
+- `data/runtime/covers/pending/`：投稿封面暂存目录
+- `data/runtime/secrets/`：管理口令、会话密钥与可选 SMTP 密钥
 
 ## 2. 设计是什么样的
 
@@ -88,9 +90,10 @@
 
 - 未登录时先显示居中的口令登录卡片
 - 登录后进入单页 dashboard
+- Dashboard 通过“已发布 / 待审核”两个 tab 区分条目维护与投稿审核
 - 条目列表按“封面 / 标题作者 / 标签 / 链接 / 操作”横向排布
 - 新建和编辑都走同一个 modal
-- 删除走独立确认框
+- 条目删除走独立确认框，投稿驳回走带审阅意见的专用弹窗
 - 成功或失败反馈通过 toast 提示
 
 视觉语言与首页一致：
@@ -123,6 +126,7 @@
 - 前台：原生 `HTML + CSS + JS`
 - 管理页：原生 `HTML + CSS + JS`
 - 后端：`Flask`
+- 发信：Python 标准库 `smtplib`
 - 存储：本地 `JSON`
 
 `server/requirements.txt` 里只有 `Flask`，说明项目刻意保持轻量，没有引入 ORM、模板引擎或前端构建系统。
@@ -306,6 +310,7 @@ IP 哈希规则也已经固化：
 - 推荐值
 - 跳转链接
 - 简介
+- 待审核投稿编辑时额外显示反馈邮箱
 
 保存前只做最基础的前端校验：
 
@@ -320,6 +325,54 @@ IP 哈希规则也已经固化：
 - `recommendValue` 必须是 `>= 0` 的整数
 - `targetUrl` 必须是合法 `http/https` URL
 - `coverPath` 必须属于本地封面 URL 前缀
+- `feedbackEmail` 可为空；非空时必须是邮箱格式，并规范化为小写
+
+### 3.8.1 投稿与审核
+
+首页工具栏提供“提交资源”入口，打开投稿 modal。投稿表单复用管理端资源表单，字段包括：
+
+- 封面
+- 标题
+- 作者
+- 反馈邮箱
+- 内容标签
+- 风味标签
+- 跳转链接
+- 简介
+
+投稿接口：
+
+- `POST /api/public/submissions`：写入 `submissions.json`
+- `POST /api/public/covers`：写入 `covers/pending/`
+
+管理审核接口：
+
+- `GET /api/admin/submissions`：读取待审核列表
+- `PUT /api/admin/submissions/<submission_id>`：编辑待审核投稿
+- `POST /api/admin/submissions/<submission_id>/approve`：通过投稿，生成公开条目
+- `DELETE /api/admin/submissions/<submission_id>`：驳回投稿，可接收 `reviewNote`
+
+通过投稿时：
+
+- 从 `submissions.json` 移除该投稿
+- 将 pending 封面迁移到正式 `covers/`
+- 生成新的 `dhm_` 公开条目
+- 初始化 `likeCount: 0` 与 `likedBy: []`
+- 不把 `feedbackEmail` 写入公开条目
+
+驳回投稿时：
+
+- 从 `submissions.json` 移除该投稿
+- 清理 pending 封面
+- 根据反馈邮箱和 SMTP 配置返回通知状态
+- 邮件发送失败不回滚驳回操作
+
+通知状态当前包括：
+
+- `sent`：邮件已发送
+- `skipped / no_feedback_email`：投稿未留反馈邮箱
+- `skipped / not_configured`：SMTP 未配置
+- `failed / send_failed`：SMTP 发信失败
 
 ### 3.9 封面上传
 
@@ -384,10 +437,58 @@ IP 哈希规则也已经固化：
 }
 ```
 
+当前待审核投稿数据在条目字段基础上额外包含 `feedbackEmail`：
+
+```json
+{
+  "id": "sub_xxxxxxxx",
+  "title": "资源标题",
+  "author": "作者",
+  "contentTags": ["模组"],
+  "flavorTags": ["武侠"],
+  "recommendValue": 0,
+  "summary": "简介",
+  "coverPath": "/the-great-vault/covers/pending/cover_xxx.webp",
+  "targetUrl": "https://example.com",
+  "feedbackEmail": "creator@example.com",
+  "createdAt": "2026-06-02T10:00:00+00:00",
+  "updatedAt": "2026-06-02T10:00:00+00:00"
+}
+```
+
+`feedbackEmail` 只保存在待审核投稿中，审核通过后不会进入 `entries.json` 或公共 API。
+
+SMTP 配置支持环境变量或 `data/runtime/secrets/smtp.json`：
+
+```json
+{
+  "host": "smtp.163.com",
+  "port": 25,
+  "username": "your_163_email@163.com",
+  "password": "your_163_smtp_authorization_code",
+  "from": "your_163_email@163.com",
+  "fromName": "宏伟宝库",
+  "security": "none"
+}
+```
+
+兼容旧版拆分 txt 文件：
+
+- `MARKETPLACE_SMTP_HOST` / `smtp_host.txt`
+- `MARKETPLACE_SMTP_PORT` / `smtp_port.txt`
+- `MARKETPLACE_SMTP_USERNAME` / `smtp_username.txt`
+- `MARKETPLACE_SMTP_PASSWORD` / `smtp_password.txt`
+- `MARKETPLACE_MAIL_FROM` / `mail_from.txt`
+- `MARKETPLACE_MAIL_FROM_NAME` / `mail_from_name.txt`
+- `MARKETPLACE_SMTP_SECURITY` / `smtp_security.txt`
+
+`MARKETPLACE_SMTP_SECURITY` 可取 `starttls`、`ssl` 或 `none`，默认 `starttls`。
+
 ID 规则：
 
 - 前缀固定 `dhm_`
 - 后缀是 `8` 位十六进制字符串
+- 待审核投稿使用 `sub_` 前缀和 `8` 位十六进制字符串
 
 后端写盘方式：
 
@@ -409,6 +510,8 @@ ID 规则：
 - 点赞 toggle
 - 删除条目后点赞数据联动
 - bootstrap 是否返回点赞字段
+- 投稿反馈邮箱校验与隐私隔离
+- 驳回投稿的通知状态与邮件发送分支
 
 前端目前没有自动化测试，主要依赖人工联调。
 
@@ -425,6 +528,9 @@ ID 规则：
 - 用户评分体系
 - 站内资源详情页
 - 交易或下载托管能力
+- 自建邮箱服务器
+- 投稿者查询审核状态
+- 通过审核邮件通知
 
 ### 4.2 已实现但没有继续深化的部分
 
@@ -435,6 +541,7 @@ ID 规则：
 - 标签仍然是自由输入，只做最小规范化，没有同义词治理
 - 简介只做 hover 提示，没有移动端专门交互
 - 导入是整表替换，没有预览 diff、回滚或合并策略
+- 驳回邮件只做基础 SMTP 发信，没有退信处理、送达率监控或邮件模板后台配置
 
 ### 4.3 文档与实现的未收口
 

@@ -1877,13 +1877,8 @@
     dom.contentTagTrigger.addEventListener('click', openTagModal);
     dom.flavorTagTrigger.addEventListener('click', openTagModal);
     dom.tagModalClose.addEventListener('click', () => closeTagModal(false));
-    dom.tagModal.addEventListener('click', (e) => { if (e.target === dom.tagModal) closeTagModal(false); });
     dom.tagModalClear.addEventListener('click', () => { state.pendingContentTags = []; state.pendingFlavorTags = []; renderTagModal(); });
     dom.tagModalApply.addEventListener('click', () => closeTagModal(true));
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && state.tagModalOpen) closeTagModal(false);
-    });
 
     function escHtml(s) {
       if (!s) return '';
@@ -1957,9 +1952,11 @@
       submitForm = window.ResourceForm.create({
         bodyEl: submitBody,
         showRecommendValue: false,
+        showFeedbackEmail: true,
         initialValues: {
           title: '',
           author: '',
+          feedbackEmail: '',
           contentTags: [],
           flavorTags: [],
           summary: '',
@@ -1997,9 +1994,6 @@
     submitBtn.addEventListener('click', openSubmitModal);
     submitClose.addEventListener('click', closeSubmitModal);
     submitCancel.addEventListener('click', closeSubmitModal);
-    submitOverlay.addEventListener('click', function (e) {
-      if (e.target === submitOverlay) closeSubmitModal();
-    });
 
     // ── 提交流程 ──
     submitSave.addEventListener('click', async function () {
