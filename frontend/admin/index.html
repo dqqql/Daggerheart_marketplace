@@ -184,6 +184,7 @@
       border: 1px solid transparent;
       letter-spacing: 0.03em;
       white-space: nowrap;
+      text-decoration: none;
     }
     .btn--gold {
       background: linear-gradient(to bottom, rgba(184,147,66,0.2), rgba(184,147,66,0.1));
@@ -303,6 +304,8 @@
     .entry-row-rec { font-size: 11px; color: var(--crimson-light); font-family: var(--font-display); }
     .entry-row-rec.yes { color: var(--gold-light); }
     .entry-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    .entry-row-link { display: flex; align-items: center; min-width: 0; }
+    .entry-row-link .btn { max-width: 100%; }
 
     .empty-list { text-align: center; padding: 48px 24px; color: var(--text-muted); font-size: 14px; }
 
@@ -715,7 +718,7 @@
 
     let entries = [];
     let editingId = null;
-    let pendingDeleteId = null;
+    let pendingConfirm = null;
 
     /* ── API ── */
     async function api(path, opts = {}) {
@@ -908,8 +911,8 @@
           + (s.contentTags || []).slice(0, 3).map(function (t) { return '<span class="entry-row-tag">' + escHtml(t) + '</span>'; }).join('')
           + ((s.contentTags || []).length > 3 ? '<span class="entry-row-tag">+' + (s.contentTags.length - 3) + '</span>' : '')
           + '</div>'
-          + '<div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(s.targetUrl) + '">'
-          + escHtml(s.targetUrl.replace(/^https?:\/\//, '').substring(0, 35))
+          + '<div class="entry-row-link">'
+          + '<a class="btn btn--ghost btn--sm" href="' + escAttr(s.targetUrl) + '" target="_blank" rel="noopener noreferrer" title="' + escAttr(s.targetUrl) + '">跳转</a>'
           + '</div>'
           + '<div class="entry-row-actions">'
           + '<div class="action-btn-group">'
@@ -999,28 +1002,62 @@
       openResourceEditor(buildEditorConfig('submission', submission));
     }
 
+    function openConfirm(options) {
+      pendingConfirm = options.onConfirm;
+      confirmText.textContent = options.message;
+      confirmOk.textContent = options.okText || '确认';
+      confirmOk.className = 'btn ' + (options.okClass || 'btn--danger');
+      confirmOverlay.classList.add('visible');
+    }
+
+    function closeConfirm() {
+      confirmOverlay.classList.remove('visible');
+      pendingConfirm = null;
+      confirmOk.disabled = false;
+      confirmOk.textContent = '确认删除';
+      confirmOk.className = 'btn btn--danger';
+    }
+
     /* ── 通过 / 驳回 ── */
     async function approveSubmission(id) {
       var s = submissions.find(function (x) { return x.id === id; });
       if (!s) return;
-      try {
-        await api('/api/admin/submissions/' + id + '/approve', { method: 'POST' });
-        showToast('已通过「' + s.title + '」');
-        submissions = submissions.filter(function (x) { return x.id !== id; });
-        renderSubmissionList();
-        updateSubmissionBadge();
-        // 同时刷新条目列表
-        entries = [];
-        await loadEntries();
-      } catch (err) { showToast(err.message, 'error'); }
+      openConfirm({
+        message: '确定要通过「' + (s.title || id) + '」吗？通过后会发布到资源列表。',
+        okText: '确认通过',
+        okClass: 'btn--success',
+        onConfirm: async function () {
+          try {
+            await api('/api/admin/submissions/' + id + '/approve', { method: 'POST' });
+            showToast('已通过「' + s.title + '」');
+            submissions = submissions.filter(function (x) { return x.id !== id; });
+            renderSubmissionList();
+            updateSubmissionBadge();
+            // 同时刷新条目列表
+            entries = [];
+            await loadEntries();
+          } catch (err) { showToast(err.message, 'error'); }
+        }
+      });
     }
 
     async function rejectSubmission(id) {
       var s = submissions.find(function (x) { return x.id === id; });
       if (!s) return;
-      pendingDeleteId = id;
-      confirmText.textContent = '确定要驳回「' + (s.title || id) + '」吗？此操作不可恢复。';
-      confirmOverlay.classList.add('visible');
+      openConfirm({
+        message: '确定要驳回「' + (s.title || id) + '」吗？此操作不可恢复。',
+        okText: '确认驳回',
+        okClass: 'btn--danger',
+        onConfirm: async function () {
+          try {
+            await api('/api/admin/submissions/' + id, { method: 'DELETE' });
+            showToast('已驳回');
+            submissions = submissions.filter(function (x) { return x.id !== id; });
+            renderSubmissionList();
+            updateSubmissionBadge();
+          } catch (err) { showToast(err.message, 'error'); }
+        }
+      });
     }
 
     function openEditor(id) {
@@ -1058,26 +1095,18 @@
 
     function confirmDelete(id) {
       const entry = entries.find(e => e.id === id);
-      confirmText.textContent = `确定要删除「${entry?.title || id}」吗？此操作不可恢复。`;
-      pendingDeleteId = id;
-      confirmOverlay.classList.add('visible');
-    }
-
-    async function doDelete() {
-      if (!pendingDeleteId) return;
-      try {
-        if (pendingDeleteId.startsWith('sub_')) {
-          await api('/api/admin/submissions/' + pendingDeleteId, { method: 'DELETE' });
-          showToast('已驳回');
-          submissions = submissions.filter(function (x) { return x.id !== pendingDeleteId; });
-          renderSubmissionList();
-          updateSubmissionBadge();
-        } else {
-          await api('/api/admin/entries/' + pendingDeleteId, { method: 'DELETE' });
-          showToast('条目已删除');
-          await loadEntries();
+      openConfirm({
+        message: `确定要删除「${entry?.title || id}」吗？此操作不可恢复。`,
+        okText: '确认删除',
+        okClass: 'btn--danger',
+        onConfirm: async function () {
+          try {
+            await api('/api/admin/entries/' + id, { method: 'DELETE' });
+            showToast('条目已删除');
+            await loadEntries();
+          } catch (err) { showToast(err.message, 'error'); }
         }
-      } catch (err) { showToast(err.message, 'error'); }
+      });
     }
 
     /* ── 事件 ── */
@@ -1135,19 +1164,18 @@
     entryModal.addEventListener('click', (e) => { if (e.target === entryModal) closeEditor(); });
     entryModalSave.addEventListener('click', saveEntry);
 
-    confirmCancel.addEventListener('click', () => { confirmOverlay.classList.remove('visible'); pendingDeleteId = null; });
+    confirmCancel.addEventListener('click', closeConfirm);
     confirmOk.addEventListener('click', async () => {
-      confirmOverlay.classList.remove('visible');
-      await doDelete();
-      pendingDeleteId = null;
+      var action = pendingConfirm;
+      closeConfirm();
+      if (action) await action();
     });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (entryModal.classList.contains('visible')) closeEditor();
         if (confirmOverlay.classList.contains('visible')) {
-          confirmOverlay.classList.remove('visible');
-          pendingDeleteId = null;
+          closeConfirm();
         }
       }
     });
