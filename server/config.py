@@ -8,6 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = ROOT_DIR / "data" / "runtime"
 ENTRIES_FILE = RUNTIME_DIR / "entries.json"
 SUBMISSIONS_FILE = RUNTIME_DIR / "submissions.json"
+SUBMISSION_REVIEWS_FILE = RUNTIME_DIR / "submission_reviews.json"
 COVERS_DIR = RUNTIME_DIR / "covers"
 PENDING_COVERS_DIR = COVERS_DIR / "pending"
 SECRETS_DIR = RUNTIME_DIR / "secrets"
@@ -39,6 +40,8 @@ ENTRY_ID_PREFIX = "dhm_"
 ENTRY_ID_HEX_LENGTH = 8
 SUBMISSION_ID_PREFIX = "sub_"
 SUBMISSION_ID_HEX_LENGTH = 8
+SUBMISSION_REVIEW_ID_PREFIX = "rev_"
+SUBMISSION_REVIEW_ID_HEX_LENGTH = 8
 
 # ── JSON 格式化 ──
 JSON_INDENT = 2

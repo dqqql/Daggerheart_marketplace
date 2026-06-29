@@ -9,6 +9,7 @@ server/tests/.tmp/
 # 运行期数据
 data/runtime/entries.json
 data/runtime/submissions.json
+data/runtime/submission_reviews.json
 data/runtime/covers/*
 !data/runtime/covers/.gitkeep
 data/runtime/secrets/*

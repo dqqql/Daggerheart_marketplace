@@ -28,6 +28,7 @@
 
 - `data/runtime/entries.json`：条目数据
 - `data/runtime/submissions.json`：待审核投稿数据
+- `data/runtime/submission_reviews.json`：历史审批记录
 - `data/runtime/covers/`：封面文件
 - `data/runtime/covers/pending/`：投稿封面暂存目录
 - `data/runtime/secrets/`：管理口令、会话密钥与可选 SMTP 密钥
@@ -348,6 +349,7 @@ IP 哈希规则也已经固化：
 管理审核接口：
 
 - `GET /api/admin/submissions`：读取待审核列表
+- `GET /api/admin/submission-reviews`：读取历史审批记录
 - `PUT /api/admin/submissions/<submission_id>`：编辑待审核投稿
 - `POST /api/admin/submissions/<submission_id>/approve`：通过投稿，生成公开条目
 - `DELETE /api/admin/submissions/<submission_id>`：驳回投稿，可接收 `reviewNote`
@@ -359,6 +361,7 @@ IP 哈希规则也已经固化：
 - 生成新的 `dhm_` 公开条目
 - 初始化 `likeCount: 0` 与 `likedBy: []`
 - 不把 `feedbackEmail` 写入公开条目
+- 向 `submission_reviews.json` 追加 `approved` 历史记录
 
 驳回投稿时：
 
@@ -366,6 +369,7 @@ IP 哈希规则也已经固化：
 - 清理 pending 封面
 - 根据反馈邮箱和 SMTP 配置返回通知状态
 - 邮件发送失败不回滚驳回操作
+- 向 `submission_reviews.json` 追加 `rejected` 历史记录，保存审阅意见与通知状态
 
 通知状态当前包括：
 
@@ -489,6 +493,7 @@ ID 规则：
 - 前缀固定 `dhm_`
 - 后缀是 `8` 位十六进制字符串
 - 待审核投稿使用 `sub_` 前缀和 `8` 位十六进制字符串
+- 历史审批记录使用 `rev_` 前缀和 `8` 位十六进制字符串
 
 后端写盘方式：
 

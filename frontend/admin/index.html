@@ -306,6 +306,52 @@
     .entry-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
     .entry-row-link { display: flex; align-items: center; min-width: 0; }
     .entry-row-link .btn { max-width: 100%; }
+    .published-row {
+      grid-template-columns: 60px 1fr 140px 120px 150px 120px;
+    }
+    .entry-row-time {
+      font-size: 12px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .review-row {
+      grid-template-columns: 90px 1fr 180px 180px 120px;
+    }
+    .review-status {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 64px;
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      border: 1px solid var(--border-hover);
+      background: var(--bg-input);
+    }
+    .review-status--approved {
+      color: var(--gold-bright);
+      border-color: var(--border-gold-strong);
+      background: rgba(184,147,66,0.08);
+    }
+    .review-status--rejected {
+      color: var(--danger-hover);
+      border-color: var(--border-danger);
+      background: rgba(184,64,64,0.08);
+    }
+    .review-note {
+      font-size: 12px;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .review-meta-line {
+      font-size: 11px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
     .empty-list { text-align: center; padding: 48px 24px; color: var(--text-muted); font-size: 14px; }
 
@@ -604,8 +650,8 @@
       background: var(--gold-dark); color: var(--gold-bright);
     }
     .tab-badge.zero { background: transparent; color: var(--text-muted); }
-    .submission-list { display: none; }
-    .submission-list.visible { display: block; }
+    .submission-list, .review-list { display: none; }
+    .submission-list.visible, .review-list.visible { display: flex; }
 
     /* ── 操作按钮 ── */
     .action-btn-group { display: flex; gap: 6px; }
@@ -650,10 +696,11 @@
     <div class="tabs" id="tabs">
       <button class="tab-btn active" id="tabEntries">已发布 <span class="tab-badge zero" id="entryBadge">0</span></button>
       <button class="tab-btn" id="tabSubmissions">待审核 <span class="tab-badge zero" id="submissionBadge">0</span></button>
+      <button class="tab-btn" id="tabReviews">历史 <span class="tab-badge zero" id="reviewBadge">0</span></button>
     </div>
 
-    <div class="entry-list-header" id="entryListHeader">
-      <span>封面</span><span>标题 / 作者</span><span>标签</span><span>链接</span><span style="text-align:right">操作</span>
+    <div class="entry-list-header published-row" id="entryListHeader">
+      <span>封面</span><span>标题 / 作者</span><span>标签</span><span>链接</span><span>最后修改时间</span><span style="text-align:right">操作</span>
     </div>
     <div class="entry-list" id="entryList">
       <div class="loading-spin">加载条目数据…</div>
@@ -664,6 +711,13 @@
     </div>
     <div class="entry-list submission-list" id="submissionList">
       <div class="loading-spin">加载投稿数据…</div>
+    </div>
+
+    <div class="entry-list-header review-row" id="reviewListHeader" style="display:none">
+      <span>结果</span><span>标题 / 投稿者</span><span>审阅</span><span>链接</span><span style="text-align:right">时间</span>
+    </div>
+    <div class="entry-list review-list" id="reviewList">
+      <div class="loading-spin">加载历史记录…</div>
     </div>
   </div>
 
@@ -821,6 +875,7 @@
       setTab('entries');
       await loadEntries();
       loadSubmissionCount();
+      loadReviewCount();
     }
 
     function updateEntryBadge() {
@@ -862,20 +917,20 @@
           ? `<img src="${escAttr(e.coverPath)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span class="no-cover" style="display:none">&#9876;</span>`
           : '<span class="no-cover">&#9876;</span>';
         return `
-        <div class="entry-row">
+        <div class="entry-row published-row">
           <div class="entry-row-cover">${thumb}</div>
           <div>
             <div class="entry-row-title">${escHtml(e.title)}</div>
-            <div class="entry-row-author">${escHtml(e.author)}</div>
+            <div class="entry-row-author">${escHtml(e.author)} ${rec?'<span class="entry-row-rec yes">&#9733; 推荐</span>':''}</div>
           </div>
           <div class="entry-row-tags">
             ${(e.contentTags||[]).slice(0,3).map(t=>`<span class="entry-row-tag">${escHtml(t)}</span>`).join('')}
             ${(e.contentTags||[]).length>3?`<span class="entry-row-tag">+${e.contentTags.length-3}</span>`:''}
           </div>
-          <div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escAttr(e.targetUrl)}">
-            ${rec?'<span class="entry-row-rec yes">&#9733; 推荐 &nbsp;</span>':''}
-            ${escHtml(e.targetUrl.replace(/^https?:\/\//,'').substring(0,35))}
+          <div class="entry-row-link">
+            <a class="btn btn--ghost btn--sm" href="${escAttr(e.targetUrl)}" target="_blank" rel="noopener noreferrer" title="${escAttr(e.targetUrl)}">跳转</a>
           </div>
+          <div class="entry-row-time" title="${escAttr(e.updatedAt || e.createdAt || '')}">${escHtml(formatDateTime(e.updatedAt || e.createdAt || ''))}</div>
           <div class="entry-row-actions">
             <button class="btn btn--ghost btn--sm edit-btn" data-id="${escAttr(e.id)}">编辑</button>
             <button class="btn btn--danger btn--sm delete-btn" data-id="${escAttr(e.id)}">删除</button>
@@ -891,14 +946,19 @@
     /* ── 审核系统 ── */
     const tabEntries = document.getElementById('tabEntries');
     const tabSubmissions = document.getElementById('tabSubmissions');
+    const tabReviews = document.getElementById('tabReviews');
     const entryBadge = document.getElementById('entryBadge');
     const submissionBadge = document.getElementById('submissionBadge');
+    const reviewBadge = document.getElementById('reviewBadge');
     const submissionListEl = document.getElementById('submissionList');
+    const reviewListEl = document.getElementById('reviewList');
     const submissionListHeader = document.getElementById('submissionListHeader');
+    const reviewListHeader = document.getElementById('reviewListHeader');
     const entryListHeader = document.getElementById('entryListHeader');
 
     let submissions = [];
-    let activeTab = 'entries';        // 'entries' | 'submissions'
+    let reviews = [];
+    let activeTab = 'entries';        // 'entries' | 'submissions' | 'reviews'
     let currentEditor = null;
     let resourceForm = null;
 
@@ -907,23 +967,41 @@
       if (tab === 'entries') {
         tabEntries.classList.add('active');
         tabSubmissions.classList.remove('active');
+        tabReviews.classList.remove('active');
         entryListHeader.style.display = '';
         entryList.style.display = '';
         submissionListHeader.style.display = 'none';
+        reviewListHeader.style.display = 'none';
         submissionListEl.classList.remove('visible');
-      } else {
+        reviewListEl.classList.remove('visible');
+      } else if (tab === 'submissions') {
         tabEntries.classList.remove('active');
         tabSubmissions.classList.add('active');
+        tabReviews.classList.remove('active');
         entryListHeader.style.display = 'none';
         entryList.style.display = 'none';
         submissionListHeader.style.display = '';
+        reviewListHeader.style.display = 'none';
         submissionListEl.classList.add('visible');
+        reviewListEl.classList.remove('visible');
         loadSubmissions();
+      } else {
+        tabEntries.classList.remove('active');
+        tabSubmissions.classList.remove('active');
+        tabReviews.classList.add('active');
+        entryListHeader.style.display = 'none';
+        entryList.style.display = 'none';
+        submissionListHeader.style.display = 'none';
+        reviewListHeader.style.display = '';
+        submissionListEl.classList.remove('visible');
+        reviewListEl.classList.add('visible');
+        loadSubmissionReviews();
       }
     }
 
     tabEntries.addEventListener('click', function () { setTab('entries'); });
     tabSubmissions.addEventListener('click', function () { setTab('submissions'); });
+    tabReviews.addEventListener('click', function () { setTab('reviews'); });
 
     function updateSubmissionBadge() {
       var n = submissions.length;
@@ -932,6 +1010,26 @@
         submissionBadge.classList.add('zero');
       } else {
         submissionBadge.classList.remove('zero');
+      }
+    }
+
+    function updateReviewBadge() {
+      var n = reviews.length;
+      reviewBadge.textContent = n;
+      if (n === 0) {
+        reviewBadge.classList.add('zero');
+      } else {
+        reviewBadge.classList.remove('zero');
+      }
+    }
+
+    async function loadReviewCount() {
+      try {
+        var data = await api('/api/admin/submission-reviews');
+        reviews = data.reviews || [];
+        updateReviewBadge();
+      } catch (err) {
+        // 静默失败——计数非关键
       }
     }
 
@@ -987,6 +1085,48 @@
       submissionListEl.querySelectorAll('.sub-reject-btn').forEach(function (b) {
         b.addEventListener('click', function () { rejectSubmission(b.dataset.id); });
       });
+    }
+
+    async function loadSubmissionReviews() {
+      reviewListEl.innerHTML = '<div class="loading-spin">加载历史记录…</div>';
+      try {
+        var data = await api('/api/admin/submission-reviews');
+        reviews = data.reviews || [];
+        renderReviewList();
+        updateReviewBadge();
+      } catch (err) {
+        reviewListEl.innerHTML = '<div class="empty-list">加载失败：' + escHtml(err.message) + '</div>';
+      }
+    }
+
+    function renderReviewList() {
+      if (!reviews.length) {
+        reviewListEl.innerHTML = '<div class="empty-list">暂无历史审批记录</div>';
+        return;
+      }
+      reviews.sort(function (a, b) { return (b.reviewedAt || '').localeCompare(a.reviewedAt || ''); });
+      reviewListEl.innerHTML = reviews.map(function (r) {
+        var approved = r.action === 'approved';
+        var statusClass = approved ? 'review-status--approved' : 'review-status--rejected';
+        var statusText = approved ? '已通过' : '已驳回';
+        var note = r.reviewNote || (approved ? '发布为条目：' + (r.entryId || '未知') : '未填写审阅意见');
+        var contact = r.feedbackEmail ? '反馈：' + r.feedbackEmail : '未留反馈邮箱';
+        var submitted = r.submittedAt ? '投稿：' + formatDateTime(r.submittedAt) : '';
+        return '<div class="entry-row review-row">'
+          + '<div><span class="review-status ' + statusClass + '">' + statusText + '</span></div>'
+          + '<div><div class="entry-row-title">' + escHtml(r.title) + '</div>'
+          + '<div class="entry-row-author">' + escHtml(r.author || '未署名') + '</div>'
+          + '<div class="review-meta-line">' + escHtml(contact) + '</div></div>'
+          + '<div>'
+          + '<div class="review-note" title="' + escAttr(note) + '">' + escHtml(note) + '</div>'
+          + '<div class="review-meta-line">' + escHtml(submitted) + '</div>'
+          + '</div>'
+          + '<div class="entry-row-link">'
+          + (r.targetUrl ? '<a class="btn btn--ghost btn--sm" href="' + escAttr(r.targetUrl) + '" target="_blank" rel="noopener noreferrer" title="' + escAttr(r.targetUrl) + '">跳转</a>' : '')
+          + '</div>'
+          + '<div class="review-meta-line" style="text-align:right">' + escHtml(formatDateTime(r.reviewedAt)) + '</div>'
+          + '</div>';
+      }).join('');
     }
 
     function buildEditorConfig(mode, source) {
@@ -1089,6 +1229,7 @@
             submissions = submissions.filter(function (x) { return x.id !== id; });
             renderSubmissionList();
             updateSubmissionBadge();
+            loadReviewCount();
             // 同时刷新条目列表
             entries = [];
             await loadEntries();
@@ -1193,6 +1334,7 @@
         submissions = submissions.filter(function (x) { return x.id !== id; });
         renderSubmissionList();
         updateSubmissionBadge();
+        loadReviewCount();
       } catch (err) {
         showToast(err.message, 'error');
       } finally {
@@ -1272,6 +1414,19 @@
     function escAttr(s) {
       if (!s) return '';
       return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function formatDateTime(value) {
+      if (!value) return '';
+      var date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
     }
 
     async function init() {

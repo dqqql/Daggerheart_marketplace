@@ -21,6 +21,7 @@ class MarketplaceServerTestCase(unittest.TestCase):
         self.runtime_dir = base_dir / "runtime"
         self.entries_file = self.runtime_dir / "entries.json"
         self.submissions_file = self.runtime_dir / "submissions.json"
+        self.submission_reviews_file = self.runtime_dir / "submission_reviews.json"
         self.covers_dir = self.runtime_dir / "covers"
         self.pending_covers_dir = self.covers_dir / "pending"
         self.secrets_dir = self.runtime_dir / "secrets"
@@ -31,6 +32,7 @@ class MarketplaceServerTestCase(unittest.TestCase):
                 "RUNTIME_DIR": str(self.runtime_dir),
                 "ENTRIES_FILE": str(self.entries_file),
                 "SUBMISSIONS_FILE": str(self.submissions_file),
+                "SUBMISSION_REVIEWS_FILE": str(self.submission_reviews_file),
                 "COVERS_DIR": str(self.covers_dir),
                 "PENDING_COVERS_DIR": str(self.pending_covers_dir),
                 "SECRETS_DIR": str(self.secrets_dir),
@@ -323,6 +325,9 @@ class MarketplaceServerTestCase(unittest.TestCase):
             self.client.get("/api/admin/submissions").status_code, 401
         )
         self.assertEqual(
+            self.client.get("/api/admin/submission-reviews").status_code, 401
+        )
+        self.assertEqual(
             self.client.put(f"/api/admin/submissions/{sid}", json={"title": "X"}).status_code, 401
         )
         self.assertEqual(
@@ -455,6 +460,16 @@ class MarketplaceServerTestCase(unittest.TestCase):
         final_file = self.covers_dir / pending_filename
         self.assertTrue(final_file.exists(), "cover should be in main covers dir")
 
+        history_resp = self.client.get("/api/admin/submission-reviews")
+        self.assertEqual(history_resp.status_code, 200)
+        reviews = history_resp.get_json()["reviews"]
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(reviews[0]["action"], "approved")
+        self.assertEqual(reviews[0]["submissionId"], sid)
+        self.assertEqual(reviews[0]["entryId"], approved["id"])
+        self.assertEqual(reviews[0]["title"], "待通过条目")
+        self.assertNotIn("/pending/", reviews[0]["coverPath"])
+
     def test_reject_submission(self) -> None:
         """驳回投稿：submissions 移除、pending 封面清理。"""
         # 上传封面到 pending
@@ -499,6 +514,18 @@ class MarketplaceServerTestCase(unittest.TestCase):
         # pending 封面应被清理
         pending_file = self.covers_dir / "pending" / pending_filename
         self.assertFalse(pending_file.exists(), "pending cover should be deleted on reject")
+
+        history_resp = self.client.get("/api/admin/submission-reviews")
+        self.assertEqual(history_resp.status_code, 200)
+        reviews = history_resp.get_json()["reviews"]
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(reviews[0]["action"], "rejected")
+        self.assertEqual(reviews[0]["submissionId"], sid)
+        self.assertEqual(reviews[0]["title"], "待驳回条目")
+        self.assertEqual(
+            reviews[0]["notification"],
+            {"status": "skipped", "reason": "no_feedback_email"},
+        )
 
     def test_reject_submission_sends_feedback_email_when_configured(self) -> None:
         """驳回带反馈邮箱的投稿 → 调用邮件发送器并传入审阅意见。"""

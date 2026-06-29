@@ -23,6 +23,7 @@ ROOT_DIR = config.ROOT_DIR
 DEFAULT_RUNTIME_DIR = config.RUNTIME_DIR
 DEFAULT_ENTRIES_FILE = config.ENTRIES_FILE
 DEFAULT_SUBMISSIONS_FILE = config.SUBMISSIONS_FILE
+DEFAULT_SUBMISSION_REVIEWS_FILE = config.SUBMISSION_REVIEWS_FILE
 DEFAULT_COVERS_DIR = config.COVERS_DIR
 DEFAULT_PENDING_COVERS_DIR = config.PENDING_COVERS_DIR
 DEFAULT_SECRETS_DIR = config.SECRETS_DIR
@@ -43,6 +44,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         RUNTIME_DIR=str(DEFAULT_RUNTIME_DIR),
         ENTRIES_FILE=str(DEFAULT_ENTRIES_FILE),
         SUBMISSIONS_FILE=str(DEFAULT_SUBMISSIONS_FILE),
+        SUBMISSION_REVIEWS_FILE=str(DEFAULT_SUBMISSION_REVIEWS_FILE),
         COVERS_DIR=str(DEFAULT_COVERS_DIR),
         PENDING_COVERS_DIR=str(DEFAULT_PENDING_COVERS_DIR),
         SECRETS_DIR=str(DEFAULT_SECRETS_DIR),
@@ -73,6 +75,9 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.config["RUNTIME_DIR"] = str(Path(app.config["RUNTIME_DIR"]).resolve())
     app.config["ENTRIES_FILE"] = str(Path(app.config["ENTRIES_FILE"]).resolve())
     app.config["SUBMISSIONS_FILE"] = str(Path(app.config["SUBMISSIONS_FILE"]).resolve())
+    app.config["SUBMISSION_REVIEWS_FILE"] = str(
+        Path(app.config["SUBMISSION_REVIEWS_FILE"]).resolve()
+    )
     app.config["COVERS_DIR"] = str(Path(app.config["COVERS_DIR"]).resolve())
     app.config["PENDING_COVERS_DIR"] = str(Path(app.config["PENDING_COVERS_DIR"]).resolve())
     app.config["SECRETS_DIR"] = str(Path(app.config["SECRETS_DIR"]).resolve())
@@ -315,6 +320,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def admin_submissions():
         return jsonify({"submissions": load_submissions(app)})
 
+    @app.get("/api/admin/submission-reviews")
+    @require_admin_session
+    def admin_submission_reviews():
+        return jsonify({"reviews": load_submission_reviews(app)})
+
     @app.put("/api/admin/submissions/<submission_id>")
     @require_admin_session
     def update_submission(submission_id: str):
@@ -366,6 +376,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         }
         entries.append(entry)
         save_entries(app, entries)
+        append_submission_review(
+            app,
+            build_submission_review(
+                app,
+                submission=submission,
+                action="approved",
+                entry=entry,
+                cover_path=new_cover_path,
+            ),
+        )
         return jsonify({"entry": entry})
 
     @app.delete("/api/admin/submissions/<submission_id>")
@@ -382,6 +402,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         cover_path = submission.get("coverPath", "")
         delete_pending_cover_file(app, cover_path)
         notification = send_submission_rejection_notification(app, submission, review_note)
+        append_submission_review(
+            app,
+            build_submission_review(
+                app,
+                submission=submission,
+                action="rejected",
+                review_note=review_note,
+                notification=notification,
+            ),
+        )
         return jsonify({"rejectedId": submission_id, "notification": notification})
 
     # ── 开发环境：serve 前端静态文件与封面 ──
@@ -428,6 +458,7 @@ def ensure_runtime_layout(app: Flask) -> None:
     runtime_dir = Path(app.config["RUNTIME_DIR"])
     entries_file = Path(app.config["ENTRIES_FILE"])
     submissions_file = Path(app.config["SUBMISSIONS_FILE"])
+    submission_reviews_file = Path(app.config["SUBMISSION_REVIEWS_FILE"])
     covers_dir = Path(app.config["COVERS_DIR"])
     pending_covers_dir = Path(app.config["PENDING_COVERS_DIR"])
     admin_password_file = Path(app.config["ADMIN_PASSWORD_FILE"])
@@ -444,6 +475,9 @@ def ensure_runtime_layout(app: Flask) -> None:
 
     if not submissions_file.exists():
         atomic_write_json(submissions_file, {"submissions": []})
+
+    if not submission_reviews_file.exists():
+        atomic_write_json(submission_reviews_file, {"reviews": []})
 
 
 def load_admin_password(app: Flask) -> str | None:
@@ -712,6 +746,16 @@ def generate_submission_id(existing_ids: set[str]) -> str:
             return candidate
 
 
+def generate_submission_review_id(existing_ids: set[str]) -> str:
+    while True:
+        candidate = (
+            f"{config.SUBMISSION_REVIEW_ID_PREFIX}"
+            f"{uuid4().hex[:config.SUBMISSION_REVIEW_ID_HEX_LENGTH]}"
+        )
+        if candidate not in existing_ids:
+            return candidate
+
+
 def load_submissions(app: Flask) -> list[dict[str, Any]]:
     submissions_file = Path(app.config["SUBMISSIONS_FILE"])
     raw_data = json.loads(submissions_file.read_text(encoding="utf-8"))
@@ -723,6 +767,67 @@ def load_submissions(app: Flask) -> list[dict[str, Any]]:
 
 def save_submissions(app: Flask, submissions: list[dict[str, Any]]) -> None:
     atomic_write_json(Path(app.config["SUBMISSIONS_FILE"]), {"submissions": submissions})
+
+
+def load_submission_reviews(app: Flask) -> list[dict[str, Any]]:
+    reviews_file = Path(app.config["SUBMISSION_REVIEWS_FILE"])
+    raw_data = json.loads(reviews_file.read_text(encoding="utf-8"))
+    reviews = raw_data.get("reviews")
+    if not isinstance(reviews, list):
+        raise RuntimeError("submission_reviews.json must contain a 'reviews' array")
+    return reviews
+
+
+def save_submission_reviews(app: Flask, reviews: list[dict[str, Any]]) -> None:
+    atomic_write_json(Path(app.config["SUBMISSION_REVIEWS_FILE"]), {"reviews": reviews})
+
+
+def append_submission_review(app: Flask, review: dict[str, Any]) -> None:
+    reviews = load_submission_reviews(app)
+    reviews.append(review)
+    save_submission_reviews(app, reviews)
+
+
+def build_submission_review(
+    app: Flask,
+    *,
+    submission: dict[str, Any],
+    action: str,
+    entry: dict[str, Any] | None = None,
+    cover_path: str | None = None,
+    review_note: str = "",
+    notification: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if action not in {"approved", "rejected"}:
+        raise ValidationError("review action is invalid")
+
+    reviews = load_submission_reviews(app)
+    review_id = generate_submission_review_id(
+        {normalize_optional_text(item.get("id")) for item in reviews}
+    )
+
+    normalized_notification: dict[str, str] | None = None
+    if notification is not None:
+        normalized_notification = normalize_notification_result(notification)
+
+    return {
+        "id": review_id,
+        "submissionId": submission.get("id", ""),
+        "action": action,
+        "entryId": entry.get("id", "") if entry else "",
+        "title": submission.get("title", ""),
+        "author": submission.get("author", ""),
+        "contentTags": list(submission.get("contentTags", [])),
+        "flavorTags": list(submission.get("flavorTags", [])),
+        "summary": submission.get("summary", ""),
+        "coverPath": cover_path if cover_path is not None else submission.get("coverPath", ""),
+        "targetUrl": submission.get("targetUrl", ""),
+        "feedbackEmail": submission.get("feedbackEmail", ""),
+        "reviewNote": review_note,
+        "notification": normalized_notification,
+        "submittedAt": submission.get("createdAt", ""),
+        "reviewedAt": now_iso(),
+    }
 
 
 def normalize_submission(
