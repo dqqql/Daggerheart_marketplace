@@ -8,6 +8,8 @@ const SUBMISSION_ID_PREFIX = "sub_";
 const REVIEW_ID_PREFIX = "rev_";
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const RESEND_EMAIL_ENDPOINT = "https://api.resend.com/emails";
+const DEFAULT_RESEND_FROM = "宏伟宝库 <review@mail.dhvault.top>";
 
 class ValidationError extends Error {
   constructor(message) {
@@ -556,7 +558,7 @@ async function approveSubmission(env, submissionId) {
 async function rejectSubmission(env, submissionId, reviewNote) {
   const submission = await loadSubmission(env, submissionId);
   await deleteCoverObject(env, submission.coverPath, "pending");
-  const notification = { status: "skipped", reason: submission.feedbackEmail ? "not_configured" : "no_feedback_email" };
+  const notification = await sendRejectionNotice(env, submission, reviewNote);
   const review = await buildSubmissionReview(env, {
     submission,
     action: "rejected",
@@ -568,6 +570,126 @@ async function rejectSubmission(env, submissionId, reviewNote) {
     reviewInsertStatement(env, review),
   ]);
   return json({ rejectedId: submissionId, notification });
+}
+
+async function sendRejectionNotice(env, submission, reviewNote, fetchImpl = fetch) {
+  const recipient = normalizeOptionalText(submission.feedbackEmail);
+  if (!recipient) return { status: "skipped", reason: "no_feedback_email" };
+  if (!env.RESEND_API_KEY) return { status: "skipped", reason: "not_configured" };
+
+  try {
+    const response = await fetchImpl(RESEND_EMAIL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(buildRejectionEmailPayload(env, submission, reviewNote, recipient)),
+    });
+
+    if (!response.ok) {
+      return {
+        status: "failed",
+        reason: "send_failed",
+        message: await readResendError(response),
+      };
+    }
+
+    const result = await readOptionalJson(response);
+    const messageId = normalizeOptionalText(result && result.id);
+    return messageId
+      ? { status: "sent", provider: "resend", messageId }
+      : { status: "sent", provider: "resend" };
+  } catch (error) {
+    return {
+      status: "failed",
+      reason: "send_failed",
+      message: compactErrorMessage(error && error.message ? error.message : String(error)),
+    };
+  }
+}
+
+function buildRejectionEmailPayload(env, submission, reviewNote, recipient) {
+  const replyTo = normalizeOptionalText(env.RESEND_REPLY_TO);
+  const payload = {
+    from: normalizeOptionalText(env.RESEND_FROM) || DEFAULT_RESEND_FROM,
+    to: recipient,
+    subject: `你的投稿「${submission.title || "未命名投稿"}」未通过审核`,
+    text: buildRejectionText(submission, reviewNote),
+    html: buildRejectionHtml(submission, reviewNote),
+  };
+  if (replyTo) payload.reply_to = replyTo;
+  return payload;
+}
+
+function buildRejectionText(submission, reviewNote) {
+  const note = normalizeOptionalText(reviewNote) || "未填写具体审阅意见。";
+  const title = submission.title || "未命名投稿";
+  const targetUrl = normalizeOptionalText(submission.targetUrl);
+  return [
+    `你好，你在宏伟宝库提交的资源「${title}」未通过审核。`,
+    "",
+    "审阅意见：",
+    note,
+    "",
+    targetUrl ? `投稿链接：${targetUrl}` : "",
+    "你可以根据审阅意见调整后重新投稿。",
+  ].filter((line) => line !== "").join("\n");
+}
+
+function buildRejectionHtml(submission, reviewNote) {
+  const note = normalizeOptionalText(reviewNote) || "未填写具体审阅意见。";
+  const title = submission.title || "未命名投稿";
+  const targetUrl = normalizeOptionalText(submission.targetUrl);
+  const linkHtml = targetUrl
+    ? `<p>投稿链接：<a href="${escapeHtml(targetUrl)}">${escapeHtml(targetUrl)}</a></p>`
+    : "";
+  return [
+    "<p>你好，</p>",
+    `<p>你在宏伟宝库提交的资源「${escapeHtml(title)}」未通过审核。</p>`,
+    "<p>审阅意见：</p>",
+    `<blockquote>${escapeHtml(note).replace(/\n/g, "<br>")}</blockquote>`,
+    linkHtml,
+    "<p>你可以根据审阅意见调整后重新投稿。</p>",
+  ].join("");
+}
+
+async function readOptionalJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function readResendError(response) {
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    return `Resend API returned ${response.status}`;
+  }
+  if (!text) return `Resend API returned ${response.status}`;
+  try {
+    const parsed = JSON.parse(text);
+    return compactErrorMessage(parsed.message || parsed.error || text);
+  } catch {
+    return compactErrorMessage(text);
+  }
+}
+
+function compactErrorMessage(value) {
+  const message = String(value || "未知错误").replace(/\s+/g, " ").trim();
+  return message.length > 180 ? message.slice(0, 177) + "..." : message;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function buildSubmissionReview(env, options) {
@@ -1072,8 +1194,12 @@ function base64UrlDecode(value) {
 
 export const __test = {
   ValidationError,
+  buildRejectionEmailPayload,
+  buildRejectionHtml,
+  buildRejectionText,
   buildTagCounts,
   normalizeEntry,
   normalizeSubmission,
   parseJsonArray,
+  sendRejectionNotice,
 };

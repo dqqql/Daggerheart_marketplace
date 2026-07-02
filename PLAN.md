@@ -367,7 +367,7 @@ IP 哈希规则也已经固化：
 
 - 从 `submissions.json` 移除该投稿
 - 清理 pending 封面
-- 根据反馈邮箱和 SMTP 配置返回通知状态
+- 根据反馈邮箱和邮件服务配置返回通知状态
 - 邮件发送失败不回滚驳回操作
 - 向 `submission_reviews.json` 追加 `rejected` 历史记录，保存审阅意见与通知状态
 
@@ -375,8 +375,8 @@ IP 哈希规则也已经固化：
 
 - `sent`：邮件已发送
 - `skipped / no_feedback_email`：投稿未留反馈邮箱
-- `skipped / not_configured`：SMTP 未配置
-- `failed / send_failed`：SMTP 发信失败
+- `skipped / not_configured`：邮件服务未配置
+- `failed / send_failed`：邮件服务发信失败
 
 ### 3.9 封面上传
 
@@ -487,6 +487,14 @@ SMTP 配置支持环境变量或 `data/runtime/secrets/smtp.json`：
 - `MARKETPLACE_SMTP_SECURITY` / `smtp_security.txt`
 
 `MARKETPLACE_SMTP_SECURITY` 可取 `starttls`、`ssl` 或 `none`，默认 `starttls`。
+
+Worker 版本使用 Resend HTTP API 发送驳回邮件：
+
+- `RESEND_API_KEY`：Cloudflare Pages Secret，必填
+- `RESEND_FROM`：发件人，默认 `宏伟宝库 <review@mail.dhvault.top>`
+- `RESEND_REPLY_TO`：回复地址，可选
+
+Resend 发信域名使用 `mail.dhvault.top`，DNS 验证记录由 Resend/Cloudflare 自动配置。
 
 ID 规则：
 
@@ -599,7 +607,7 @@ ID 规则：
 
 - 公开条目仍返回 `likeCount` 与 `likedBy`，但 D1 内部将点赞拆为 `entry_likes` 表。
 - 封面上传改写到 R2，公开路径仍保持 `/the-great-vault/covers/<file>` 和 `/the-great-vault/covers/pending/<file>`。
-- Worker 首版不复刻 SMTP；驳回投稿仍写入审核历史，通知状态按计划返回 `skipped/not_configured` 或 `skipped/no_feedback_email`。
+- Worker 使用 Resend HTTP API 发送驳回邮件；驳回投稿仍写入审核历史，邮件发送失败不回滚驳回操作。
 
 当前验证状态：
 

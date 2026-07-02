@@ -57,3 +57,77 @@ test("buildTagCounts sorts by count then tag", () => {
     { tag: "武侠", count: 1 },
   ]);
 });
+
+test("sendRejectionNotice posts a Resend email when configured", async () => {
+  const calls = [];
+  const notification = await __test.sendRejectionNotice(
+    {
+      RESEND_API_KEY: "test_key",
+      RESEND_FROM: "宏伟宝库 <review@mail.dhvault.top>",
+      RESEND_REPLY_TO: "contact@dhvault.top",
+    },
+    {
+      title: "社区投稿",
+      targetUrl: "https://example.com/submission",
+      feedbackEmail: "creator@example.com",
+    },
+    "请补充授权说明。",
+    async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ id: "email_123" }), { status: 200 });
+    }
+  );
+
+  assert.deepEqual(notification, { status: "sent", provider: "resend", messageId: "email_123" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://api.resend.com/emails");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer test_key");
+
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.from, "宏伟宝库 <review@mail.dhvault.top>");
+  assert.equal(body.to, "creator@example.com");
+  assert.equal(body.reply_to, "contact@dhvault.top");
+  assert.equal(body.subject, "你的投稿「社区投稿」未通过审核");
+  assert.match(body.text, /请补充授权说明。/);
+  assert.match(body.html, /请补充授权说明。/);
+});
+
+test("sendRejectionNotice skips Resend when email or API key is missing", async () => {
+  assert.deepEqual(
+    await __test.sendRejectionNotice(
+      { RESEND_API_KEY: "test_key" },
+      { title: "无反馈邮箱", feedbackEmail: "" },
+      "请修改。",
+      async () => {
+        throw new Error("fetch should not be called");
+      }
+    ),
+    { status: "skipped", reason: "no_feedback_email" }
+  );
+
+  assert.deepEqual(
+    await __test.sendRejectionNotice(
+      {},
+      { title: "未配置 Key", feedbackEmail: "creator@example.com" },
+      "请修改。",
+      async () => {
+        throw new Error("fetch should not be called");
+      }
+    ),
+    { status: "skipped", reason: "not_configured" }
+  );
+});
+
+test("sendRejectionNotice reports Resend API errors without throwing", async () => {
+  const notification = await __test.sendRejectionNotice(
+    { RESEND_API_KEY: "test_key" },
+    { title: "会失败的投稿", feedbackEmail: "creator@example.com" },
+    "请修改。",
+    async () => new Response(JSON.stringify({ message: "domain is not verified" }), { status: 403 })
+  );
+
+  assert.equal(notification.status, "failed");
+  assert.equal(notification.reason, "send_failed");
+  assert.equal(notification.message, "domain is not verified");
+});

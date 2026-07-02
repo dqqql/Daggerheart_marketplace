@@ -1310,7 +1310,7 @@
       if (!notification || notification.status === 'sent') return '已驳回，邮件已发送';
       if (notification.status === 'skipped') {
         if (notification.reason === 'no_feedback_email') return '已驳回，未留邮箱';
-        if (notification.reason === 'not_configured') return '已驳回，SMTP 未配置';
+        if (notification.reason === 'not_configured') return '已驳回，邮件服务未配置';
         return '已驳回，邮件已跳过';
       }
       if (notification.status === 'failed') {

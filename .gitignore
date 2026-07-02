@@ -19,3 +19,5 @@ data/runtime/secrets/*
 !data/runtime/secrets/.gitkeep
 data/imports/
 !data/imports/.gitkeep
+迁移计划.md
+covers.rar

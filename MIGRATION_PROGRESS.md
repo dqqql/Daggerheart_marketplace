@@ -23,6 +23,7 @@
 - 确认现有前端主要通过相对 `/api/...` 调用后端，适合保持响应形状迁移。
 - 确认封面路径统一以 `/the-great-vault/covers` 和 `/the-great-vault/covers/pending` 暴露，迁移后可由 R2 对象代理实现。
 - 确认旧 Flask 驳回邮件在 Worker 首版中按计划降级为 `skipped/not_configured`。
+- Resend 发信域名 `mail.dhvault.top` 已验证，Worker 驳回邮件改为通过 Resend HTTP API 发送。
 - 新增 `frontend/_worker.js`，用 Pages advanced mode 统一处理 API、静态路径兼容和 R2 封面代理。
 - 新增 `migrations/0001_initial.sql`，把 entries、entry_likes、submissions、submission_reviews 拆到 D1。
 - 新增 `scripts/build_d1_import.mjs`，可把现有 entries JSON 转为 D1 导入 SQL，并迁移 `likedBy`。
