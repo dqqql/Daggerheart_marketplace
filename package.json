@@ -1,0 +1,16 @@
+{
+  "name": "daggerheart-marketplace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:pages": "wrangler pages dev",
+    "check:worker": "node --check frontend/_worker.js",
+    "test:worker": "node --test tests/worker.test.mjs",
+    "d1:migrate:local": "wrangler d1 migrations apply the-great-vault --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply the-great-vault --remote",
+    "import:entries:sql": "node scripts/build_d1_import.mjs --entries D:\\Dql\\Desktop\\entries_backup_2026-07-02.json --out data\\imports\\entries_import.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.24.0"
+  }
+}

@@ -581,3 +581,33 @@ ID 规则：
 
 - `python -m unittest discover -s server/tests -v`
 - `python scripts/check_python_syntax.py`
+
+## 7. Cloudflare 迁移实施记录
+
+当前分支已开始按 `迁移计划.md` 落地 Cloudflare 版本，目标是保留现有前端体验和 `/api/...` 响应形状，同时将运行期存储从本地 JSON/文件迁移到 D1/R2。
+
+新增结构：
+
+- `frontend/_worker.js`：Cloudflare Pages advanced mode Worker，处理公开 API、管理 API、投稿审核、旧 URL 兼容和 R2 封面代理。
+- `migrations/0001_initial.sql`：D1 初始 schema，包含 `entries`、`entry_likes`、`submissions`、`submission_reviews`。
+- `wrangler.jsonc` / `package.json`：Pages、D1、R2 的本地开发与部署配置骨架。
+- `scripts/build_d1_import.mjs`：将现有 entries JSON 转为 D1 SQL，迁移 `likedBy` 为 `entry_likes`。
+- `scripts/upload_covers_to_r2.ps1`：按 entries JSON 引用的封面文件名，从 zip 中匹配并上传到 R2。
+- `MIGRATION_PROGRESS.md`：本次迁移的实时进度记录。
+
+数据行为变化：
+
+- 公开条目仍返回 `likeCount` 与 `likedBy`，但 D1 内部将点赞拆为 `entry_likes` 表。
+- 封面上传改写到 R2，公开路径仍保持 `/the-great-vault/covers/<file>` 和 `/the-great-vault/covers/pending/<file>`。
+- Worker 首版不复刻 SMTP；驳回投稿仍写入审核历史，通知状态按计划返回 `skipped/not_configured` 或 `skipped/no_feedback_email`。
+
+当前验证状态：
+
+- `scripts/build_d1_import.mjs` 已可从 `D:\Dql\Desktop\entries_backup_2026-07-02.json` 生成 SQL，统计到 142 条 entries、860 条历史点赞。
+- `scripts/upload_covers_to_r2.ps1` 对 `D:\Dql\Desktop\官方卡图包.zip` dry run 显示：JSON 引用 114 个 `cover_*.webp`，该 zip 匹配 0 个，说明它不是正式封面备份包。
+- 本机 Wrangler/Workerd 在 D1 local migration 和 runtime type generation 阶段触发 Windows access violation，Cloudflare 本地运行时验证暂时受阻；JS 语法检查与原 Flask 测试已通过。
+- Cloudflare remote 已完成首版上线验证：
+  - D1 `the-great-vault` 已执行 migration，并导入 `entries=142`、`entry_likes=860`。
+  - R2 `the-great-vault-covers` 已上传 JSON 引用的 114 个正式封面。
+  - Pages `the-great-vault` 已创建并部署，预览地址为 `https://98fb138d.the-great-vault.pages.dev`，生产地址为 `https://the-great-vault.pages.dev`。
+  - 已验证 `/api/health`、`/api/public/bootstrap`、封面代理、管理员登录/session、点赞 toggle。
