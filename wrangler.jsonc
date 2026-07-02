@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "the-great-vault",
+  "pages_build_output_dir": "./frontend",
+  "compatibility_date": "2026-07-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "the-great-vault",
+      "database_id": "7349381f-0e4e-49c4-bf53-889614316eba",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "COVERS",
+      "bucket_name": "the-great-vault-covers"
+    }
+  ],
+  "vars": {
+    "LIKE_HASH_SALT": "dh_like_"
+  }
+}
