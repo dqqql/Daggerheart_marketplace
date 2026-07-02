@@ -278,6 +278,59 @@ class MarketplaceServerTestCase(unittest.TestCase):
         self.assertEqual(rejected["entryId"], entry_id)
         self.assertEqual(rejected["reviewNote"], "需要重新整理授权说明。")
 
+    def test_edit_published_entry_email_then_reject_sends_notice(self) -> None:
+        sent: list[dict[str, str]] = []
+
+        def fake_mailer(**kwargs):
+            sent.append(kwargs)
+            return {"status": "sent"}
+
+        self.app.config["MAIL_SENDER"] = fake_mailer
+        self.login()
+        create_response = self.client.post(
+            "/api/admin/entries",
+            json={
+                "title": "可补邮箱资源",
+                "author": "测试",
+                "contentTags": [],
+                "flavorTags": [],
+                "recommendValue": 0,
+                "summary": "",
+                "coverPath": "",
+                "targetUrl": "https://example.com/can-email",
+            },
+        )
+        entry_id = create_response.get_json()["entry"]["id"]
+
+        edit_response = self.client.put(
+            f"/api/admin/entries/{entry_id}",
+            json={
+                "title": "可补邮箱资源",
+                "author": "测试",
+                "contentTags": [],
+                "flavorTags": [],
+                "recommendValue": 0,
+                "summary": "",
+                "coverPath": "",
+                "targetUrl": "https://example.com/can-email",
+                "feedbackEmail": " Owner@Example.COM ",
+            },
+        )
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertEqual(edit_response.get_json()["entry"]["feedbackEmail"], "owner@example.com")
+
+        reject_response = self.client.post(
+            f"/api/admin/entries/{entry_id}/reject",
+            json={"reviewNote": "经复核需要调整授权说明。"},
+        )
+
+        self.assertEqual(reject_response.status_code, 200)
+        self.assertEqual(reject_response.get_json()["notification"], {"status": "sent"})
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["recipient"], "owner@example.com")
+        self.assertEqual(sent[0]["notice_type"], "published_rejected")
+        self.assertEqual(sent[0]["review_note"], "经复核需要调整授权说明。")
+
     def test_submit_entry_success(self) -> None:
         """匿名提交合法条目 → 201，数据写入 submissions，不进入 entries。"""
         payload = {

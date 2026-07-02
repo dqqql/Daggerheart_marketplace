@@ -26,6 +26,34 @@ test("normalizeEntry mirrors Flask entry cleanup", () => {
   assert.deepEqual(entry.likedBy, []);
 });
 
+test("normalizeEntry updates optional feedback email", () => {
+  const entry = __test.normalizeEntry({
+    title: "旧资源",
+    author: "作者",
+    contentTags: [],
+    flavorTags: [],
+    recommendValue: 0,
+    summary: "",
+    coverPath: "",
+    targetUrl: "https://example.com/legacy",
+    feedbackEmail: " New@Example.COM ",
+  }, {
+    existingIds: new Set(),
+    currentEntry: {
+      id: "dhm_legacy",
+      createdAt: "2026-01-01T00:00:00+00:00",
+      likeCount: 3,
+      likedBy: ["abc"],
+      feedbackEmail: "",
+    },
+  });
+
+  assert.equal(entry.id, "dhm_legacy");
+  assert.equal(entry.feedbackEmail, "new@example.com");
+  assert.equal(entry.likeCount, 3);
+  assert.deepEqual(entry.likedBy, ["abc"]);
+});
+
 test("normalizeSubmission keeps feedback email private-ready and accepts pending covers", () => {
   const submission = __test.normalizeSubmission({
     id: "sub_manual",

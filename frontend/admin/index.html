@@ -1206,6 +1206,7 @@
         initialValues: source || {
           title: '',
           author: '',
+          feedbackEmail: '',
           contentTags: [],
           flavorTags: [],
           recommendValue: 0,
@@ -1234,7 +1235,7 @@
       resourceForm = window.ResourceForm.create({
         bodyEl: entryModalBody,
         showRecommendValue: true,
-        showFeedbackEmail: config.mode === 'submission',
+        showFeedbackEmail: config.mode === 'submission' || config.mode === 'entry',
         initialValues: config.initialValues,
         uploadCover: async function (formData) {
           return api('/api/admin/covers', { method: 'POST', body: formData });

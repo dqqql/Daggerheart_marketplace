@@ -976,9 +976,7 @@ function normalizeEntry(payload, options) {
   const summary = normalizeOptionalText(payload.summary);
   const targetUrl = normalizeExternalUrl(payload.targetUrl);
   const coverPath = normalizeCoverPath(payload.coverPath, COVER_URL_PREFIX);
-  const feedbackEmail = current
-    ? normalizeOptionalText(current.feedbackEmail)
-    : normalizeOptionalFeedbackEmail(payload.feedbackEmail);
+  const feedbackEmail = normalizeOptionalFeedbackEmail(payload.feedbackEmail);
   const now = nowIso();
 
   let id;

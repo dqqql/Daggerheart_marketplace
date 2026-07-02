@@ -642,10 +642,7 @@ def normalize_entry(
     summary = normalize_optional_text(payload.get("summary"))
     target_url = normalize_external_url(payload.get("targetUrl"))
     cover_path = normalize_cover_path(payload.get("coverPath"), cover_url_prefix)
-    if current_entry:
-        feedback_email = normalize_optional_text(current_entry.get("feedbackEmail"))
-    else:
-        feedback_email = normalize_optional_feedback_email(payload.get("feedbackEmail"))
+    feedback_email = normalize_optional_feedback_email(payload.get("feedbackEmail"))
 
     if current_entry:
         entry_id = current_entry["id"]
