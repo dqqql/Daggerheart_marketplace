@@ -439,8 +439,13 @@
       gap: 24px;
     }
 
+    .card-grid[aria-busy="true"] {
+      min-height: 720px;
+    }
+
     .section-header {
       grid-column: 1 / -1;
+      min-width: 0;
       display: flex;
       align-items: center;
       gap: 16px;
@@ -462,12 +467,15 @@
 
     .card {
       background: var(--bg-surface);
+      min-width: 0;
       border: 1px solid var(--border-card);
       border-radius: var(--radius-card);
       cursor: pointer;
       transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
       position: relative;
       animation: cardEnter 0.45s ease both;
+      content-visibility: auto;
+      contain-intrinsic-size: auto 520px;
     }
     .card:hover {
       transform: translateY(-4px);
@@ -519,6 +527,41 @@
       transition: opacity var(--transition-base);
     }
     .card:hover .card-cover::after { opacity: 1; }
+
+    /* 首屏骨架与真实卡片使用相同网格和封面比例，避免数据返回时页面跳动。 */
+    .skeleton-card {
+      pointer-events: none;
+      animation: none;
+      overflow: hidden;
+    }
+    .skeleton-block {
+      position: relative;
+      overflow: hidden;
+      background: var(--bg-elevated);
+    }
+    .skeleton-block::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(184,147,66,0.08), transparent);
+      animation: skeletonSweep 1.6s ease-in-out infinite;
+    }
+    .skeleton-cover { aspect-ratio: 3 / 4; }
+    .skeleton-body { padding: 16px; }
+    .skeleton-line {
+      height: 12px;
+      margin-bottom: 12px;
+      border-radius: 2px;
+    }
+    .skeleton-line--title { width: 72%; height: 16px; }
+    .skeleton-line--meta { width: 46%; }
+    .skeleton-line--tag { width: 58%; margin-bottom: 0; }
+    .skeleton-section-title {
+      width: min(240px, 55vw);
+      height: 32px;
+      border-radius: 2px;
+    }
 
     /* 推荐徽章 */
     .card-badge {
@@ -873,6 +916,18 @@
     }
     .state-message.visible { display: block; }
 
+    .loading-status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     .state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.6; }
     .state-text { font-size: 15px; color: var(--text-secondary); margin-bottom: 8px; }
     .state-hint { font-size: 13px; color: var(--text-muted); }
@@ -937,6 +992,21 @@
       to { opacity: 1; transform: scale(1); }
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes skeletonSweep { to { transform: translateX(100%); } }
+
+    :where(a, button, input, [tabindex]):focus-visible {
+      outline: 2px solid var(--gold-bright);
+      outline-offset: 3px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
 
     /* ══════════════════════════════════════════
        Narrow Nav — 视口不够宽时，导航切换为左贴边窄轨
@@ -1059,9 +1129,10 @@
       .card-grid {
         padding-left: 48px;
         gap: 14px;
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
         margin-top: 20px;
       }
+      .card-grid[aria-busy="true"] { min-height: 620px; }
 
       /* Section header — 锚点安全距离更大（双行工具栏） */
       .section-header {
@@ -1340,12 +1411,21 @@
 
     <nav class="section-nav" id="sectionNav" style="display:none"></nav>
 
-    <div class="results-count" id="resultsCount"></div>
-    <div class="card-grid" id="cardGrid" role="list"></div>
+    <div class="results-count" id="resultsCount" aria-live="polite"></div>
+    <div class="card-grid" id="cardGrid" role="list" aria-busy="true">
+      <div class="section-header" aria-hidden="true"><span class="skeleton-block skeleton-section-title"></span></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+      <div class="card skeleton-card" aria-hidden="true"><div class="skeleton-block skeleton-cover"></div><div class="skeleton-body"><div class="skeleton-block skeleton-line skeleton-line--title"></div><div class="skeleton-block skeleton-line skeleton-line--meta"></div><div class="skeleton-block skeleton-line skeleton-line--tag"></div></div></div>
+    </div>
 
-    <div class="state-message" id="loadingState">
-      <div class="spinner"></div>
-      <p class="state-text" style="margin-top:20px">正在检视图书馆…</p>
+    <div class="loading-status" id="loadingState" role="status" aria-live="polite">
+      正在检视图书馆…
     </div>
 
     <div class="state-message" id="emptyState">
@@ -1603,7 +1683,7 @@
       renderActiveFilters();
       renderTagTriggerStates();
       renderCardGrid();
-      renderTagModal();
+      if (state.tagModalOpen) renderTagModal();
     }
 
     function renderTagTriggerStates() {
@@ -1625,20 +1705,9 @@
           ${escHtml(c.label)} <span class="active-filter-chip-remove">&times;</span>
         </span>`
       ).join('');
-
-      dom.activeFilters.querySelectorAll('.active-filter-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-          const type = chip.dataset.type;
-          const tag = chip.dataset.tag;
-          if (type === 'content') state.selectedContentTags = state.selectedContentTags.filter(t => t !== tag);
-          else state.selectedFlavorTags = state.selectedFlavorTags.filter(t => t !== tag);
-          syncPendingFromSelected();
-          renderAll();
-        });
-      });
     }
 
-    function renderCard(entry, idx) {
+    function renderCard(entry, idx, prioritizeImage = false) {
       const hasSummary = !!(entry.summary && entry.summary.trim());
       const isRec = entry.recommendValue > 0;
       const cTags = entry.contentTags || [];
@@ -1646,15 +1715,21 @@
       const liked = state.likedEntries.includes(entry.id);
       const likeCount = entry.likeCount || 0;
 
+      const imageHtml = entry.coverPath
+        ? `<img src="${escAttr(entry.coverPath)}" alt="${escAttr(entry.title)} 封面"
+             width="600" height="800" loading="${prioritizeImage ? 'eager' : 'lazy'}"
+             fetchpriority="${prioritizeImage ? 'high' : 'auto'}" decoding="async"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        : '';
+
       return `
         <div class="card ${isRec?'recommended':''} ${hasSummary?'has-summary':''}"
              role="listitem"
              style="animation-delay:${Math.min(idx*0.04,0.6)}s"
              data-href="${escAttr(entry.targetUrl)}" data-id="${escAttr(entry.id)}">
           <div class="card-cover">
-            <img src="${escAttr(entry.coverPath)}" alt="${escAttr(entry.title)} 封面" loading="lazy"
-                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-            <div class="card-cover-placeholder" style="display:none">
+            ${imageHtml}
+            <div class="card-cover-placeholder" style="display:${entry.coverPath ? 'none' : 'flex'}">
               <span class="card-cover-placeholder-icon">&#9876;</span>
               <span class="card-cover-placeholder-text">NO COVER</span>
             </div>
@@ -1686,9 +1761,16 @@
       return (entry.contentTags||[]).includes(tag) || (entry.flavorTags||[]).includes(tag);
     }
 
+    function getPriorityImageCount() {
+      if (window.matchMedia('(max-width: 640px)').matches) return 1;
+      if (window.matchMedia('(max-width: 1024px)').matches) return 2;
+      return 4;
+    }
+
     function renderCardGrid() {
       const filtered = getFilteredEntries();
       const hasActiveFilter = state.searchQuery.trim() || state.selectedContentTags.length || state.selectedFlavorTags.length;
+      const priorityImageCount = getPriorityImageCount();
 
       if (!state.loading && state.entries.length > 0) {
         const total = state.entries.length;
@@ -1712,7 +1794,7 @@
       if (hasActiveFilter) {
         dom.sectionNav.style.display = 'none';
         dom.cardGrid.classList.add('card-grid--centered');
-        dom.cardGrid.innerHTML = filtered.map((entry, idx) => renderCard(entry, idx)).join('');
+        dom.cardGrid.innerHTML = filtered.map((entry, idx) => renderCard(entry, idx, idx < priorityImageCount)).join('');
       } else {
         dom.cardGrid.classList.remove('card-grid--centered');
         const sorted = [...state.entries].sort((a, b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
@@ -1776,7 +1858,8 @@
         for (const s of sections) {
           if (!s.entries.length) continue;
           gridHtml += `<div class="section-header" id="${s.id}">${s.label} · ${s.entries.length}</div>`;
-          gridHtml += s.entries.map((e, i) => renderCard(e, i)).join('');
+          gridHtml += s.entries.map((e, i) => renderCard(e, i,
+            s.id === 'sec-latest' && i < priorityImageCount)).join('');
           navHtml += `<a href="#${s.id}" class="section-nav-link"><span class="nav-label-full">${s.label}</span><span class="nav-label-short">${s.short}</span></a>`;
         }
         dom.cardGrid.innerHTML = gridHtml;
@@ -1784,18 +1867,7 @@
         dom.sectionNav.style.display = 'flex';
       }
 
-      dom.cardGrid.querySelectorAll('.card').forEach(card => {
-        card.addEventListener('click', (e) => {
-          const likeBtn = e.target.closest('[data-action="like"]');
-          if (likeBtn) {
-            e.stopPropagation();
-            toggleLike(likeBtn.dataset.entryId, likeBtn);
-            return;
-          }
-          const href = card.dataset.href;
-          if (href) window.open(href, '_blank', 'noopener');
-        });
-      });
+      dom.cardGrid.setAttribute('aria-busy', 'false');
     }
 
     function renderTagModal() {
@@ -1828,10 +1900,13 @@
     }
 
     function updateDisplayMode() {
-      dom.loadingState.classList.toggle('visible', state.loading);
+      dom.cardGrid.setAttribute('aria-busy', String(state.loading));
+      dom.loadingState.textContent = state.loading
+        ? '正在检视图书馆…'
+        : (state.error ? '目录加载失败' : '目录加载完成');
       dom.errorState.classList.toggle('visible', !!state.error && !state.loading);
       if (state.error) dom.errorText.textContent = state.error;
-      dom.cardGrid.style.display = (!state.loading && !state.error && state.entries.length > 0) ? '' : 'none';
+      dom.cardGrid.style.display = (!state.error && (state.loading || state.entries.length > 0)) ? '' : 'none';
       if (!state.loading && !state.error && state.entries.length === 0) {
         dom.emptyState.classList.add('visible');
       }
@@ -1863,6 +1938,29 @@
     }
 
     // 事件绑定
+    dom.cardGrid.addEventListener('click', (e) => {
+      const likeBtn = e.target.closest('[data-action="like"]');
+      if (likeBtn) {
+        e.stopPropagation();
+        toggleLike(likeBtn.dataset.entryId, likeBtn);
+        return;
+      }
+      const card = e.target.closest('.card[data-href]');
+      if (card?.dataset.href) window.open(card.dataset.href, '_blank', 'noopener');
+    });
+
+    dom.activeFilters.addEventListener('click', (e) => {
+      const chip = e.target.closest('.active-filter-chip');
+      if (!chip) return;
+      if (chip.dataset.type === 'content') {
+        state.selectedContentTags = state.selectedContentTags.filter(t => t !== chip.dataset.tag);
+      } else {
+        state.selectedFlavorTags = state.selectedFlavorTags.filter(t => t !== chip.dataset.tag);
+      }
+      syncPendingFromSelected();
+      renderAll();
+    });
+
     let searchTimer;
     dom.searchInput.addEventListener('input', () => {
       dom.searchClear.classList.toggle('visible', dom.searchInput.value.length > 0);
@@ -2045,8 +2143,9 @@
       requestAnimationFrame(() => updateActiveNavSection());
       loadLikes().then(() => {
         if (!state.loading && !state.error && state.entries.length > 0) {
-          renderCardGrid();
-          requestAnimationFrame(() => updateActiveNavSection());
+          state.entries.forEach(entry => {
+            updateCardLikeUI(entry.id, state.likedEntries.includes(entry.id), entry.likeCount || 0);
+          });
         }
       });
     }
