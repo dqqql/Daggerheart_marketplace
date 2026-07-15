@@ -205,8 +205,8 @@
 各分区的实际实现规则如下：
 
 - 最新收录：按 `updatedAt` 倒序取前 `8` 个
-- 编辑推荐：`recommendValue > 0`，按推荐值倒序，同分按 `updatedAt` 倒序，取前 `4` 个
-- 社群匕选：`likeCount >= 5`，按点赞数倒序，同分按 `updatedAt` 倒序，取前 `4` 个
+- 编辑推荐：`recommendValue > 0`，按推荐值倒序，同分按 `updatedAt` 倒序，取前 `8` 个
+- 社群匕选：`likeCount >= 5`，按点赞数倒序，同分按 `updatedAt` 倒序，取前 `8` 个
 - 其他常规分区：使用加权分 `recommendValue * 10 + likeCount` 倒序，同分按 `updatedAt` 倒序
 
 各分区究竟由哪些标签驱动，直接看 `frontend/index.html` 中 `const CONFIG` 下的分区标签映射数组（`MODULE_TAGS`、`PLAYER_RESOURCE_TAGS`、`GM_RESOURCE_TAGS`、`EXT_RULE_TAGS`、`CAMPAIGN_FRAMEWORK_TAGS`），文档不写死具体标签组合。
