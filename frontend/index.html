@@ -1500,7 +1500,8 @@
 
       // 分区
       LATEST_COUNT: 8,
-      SPOTLIGHT_COUNT: 8,
+      EDITOR_PICK_COUNT: 8,
+      POPULAR_PICK_COUNT: 4,
       POPULAR_LIKE_THRESHOLD: 5,  // 大众点评最低点赞数
 
       // 排序权重
@@ -1831,16 +1832,18 @@
             if (rv !== 0) return rv;
             return (b.updatedAt||'').localeCompare(a.updatedAt||'');
           })
-          .slice(0, CONFIG.SPOTLIGHT_COUNT);
+          .slice(0, CONFIG.EDITOR_PICK_COUNT);
+
+        const editorPickIds = new Set(editorPick.map(e => e.id));
 
         const popularPick = [...state.entries]
-          .filter(e => (e.likeCount||0) >= CONFIG.POPULAR_LIKE_THRESHOLD)
+          .filter(e => !editorPickIds.has(e.id) && (e.likeCount||0) >= CONFIG.POPULAR_LIKE_THRESHOLD)
           .sort((a, b) => {
             const lc = (b.likeCount||0) - (a.likeCount||0);
             if (lc !== 0) return lc;
             return (b.updatedAt||'').localeCompare(a.updatedAt||'');
           })
-          .slice(0, CONFIG.SPOTLIGHT_COUNT);
+          .slice(0, CONFIG.POPULAR_PICK_COUNT);
 
         const sections = [
           { id: 'sec-latest', label: '最新收录', short: '最新', entries: latest },

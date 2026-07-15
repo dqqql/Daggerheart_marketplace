@@ -206,14 +206,14 @@
 
 - 最新收录：按 `updatedAt` 倒序取前 `8` 个
 - 编辑推荐：`recommendValue > 0`，按推荐值倒序，同分按 `updatedAt` 倒序，取前 `8` 个
-- 社群匕选：`likeCount >= 5`，按点赞数倒序，同分按 `updatedAt` 倒序，取前 `8` 个
+- 社群匕选：排除已进入`编辑推荐`的条目后，`likeCount >= 5`，按点赞数倒序，同分按 `updatedAt` 倒序，取前 `4` 个
 - 其他常规分区：使用加权分 `recommendValue * 10 + likeCount` 倒序，同分按 `updatedAt` 倒序
 
 各分区究竟由哪些标签驱动，直接看 `frontend/index.html` 中 `const CONFIG` 下的分区标签映射数组（`MODULE_TAGS`、`PLAYER_RESOURCE_TAGS`、`GM_RESOURCE_TAGS`、`EXT_RULE_TAGS`、`CAMPAIGN_FRAMEWORK_TAGS`），文档不写死具体标签组合。
 
 分区不是完全互斥的：
 
-- `最新收录`、`编辑推荐`、`社群匕选` 本来就允许和下方分区重复
+- `最新收录`、`编辑推荐`、`社群匕选` 允许和下方分区重复；`编辑推荐` 与 `社群匕选` 之间排重
 - `玩家资源` / `GM资源` 只排除了已经归入"战役框架 / 模组"的条目
 - `扩展规则` 分区没有做额外排重，因此它可以和别的内容型分区重复
 
