@@ -201,6 +201,15 @@ async function handleApi(request, env, ctx, path) {
     return response;
   }
 
+  const reviewedMatch = path.match(/^\/api\/admin\/submissions\/([^/]+)\/reviewed$/);
+  if (method === "POST" && reviewedMatch) {
+    const submission = await markSubmissionReviewed(
+      env,
+      decodeURIComponent(reviewedMatch[1])
+    );
+    return json({ submission });
+  }
+
   return json({ error: "not found" }, 404);
 }
 
@@ -611,6 +620,15 @@ async function updateSubmission(env, submissionId, payload) {
   return submission;
 }
 
+async function markSubmissionReviewed(env, submissionId) {
+  await env.DB.prepare(
+    `UPDATE submissions
+        SET review_count = review_count + 1, updated_at = ?
+      WHERE id = ? AND review_count < 2`
+  ).bind(nowIso(), submissionId).run();
+  return loadSubmission(env, submissionId);
+}
+
 async function insertSubmission(env, submission) {
   await env.DB.prepare(
     `INSERT INTO submissions
@@ -636,7 +654,8 @@ async function insertSubmission(env, submission) {
 async function loadSubmissions(env) {
   const result = await env.DB.prepare(
     `SELECT id, title, author, content_tags, flavor_tags, recommend_value,
-            summary, cover_path, target_url, feedback_email, created_at, updated_at
+            summary, cover_path, target_url, feedback_email, review_count,
+            created_at, updated_at
        FROM submissions
       ORDER BY created_at DESC, id ASC`
   ).all();
@@ -646,7 +665,8 @@ async function loadSubmissions(env) {
 async function loadSubmission(env, submissionId) {
   const row = await env.DB.prepare(
     `SELECT id, title, author, content_tags, flavor_tags, recommend_value,
-            summary, cover_path, target_url, feedback_email, created_at, updated_at
+            summary, cover_path, target_url, feedback_email, review_count,
+            created_at, updated_at
        FROM submissions WHERE id = ?`
   ).bind(submissionId).first();
   if (!row) throw new ValidationError("submission not found");
@@ -665,6 +685,7 @@ function rowToSubmission(row) {
     coverPath: row.cover_path || "",
     targetUrl: row.target_url,
     feedbackEmail: row.feedback_email || "",
+    reviewCount: normalizeReviewCount(row.review_count),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1108,6 +1129,12 @@ function normalizeEntry(payload, options) {
   };
 }
 
+function normalizeReviewCount(value) {
+  const count = Number.parseInt(value, 10);
+  if (!Number.isInteger(count) || count < 0) return 0;
+  return Math.min(count, 2);
+}
+
 function normalizeSubmission(payload, options) {
   const current = options.currentSubmission;
   const title = normalizeRequiredText(payload.title, "title");
@@ -1151,6 +1178,7 @@ function normalizeSubmission(payload, options) {
     coverPath,
     targetUrl,
     feedbackEmail,
+    reviewCount: current ? normalizeReviewCount(current.reviewCount) : 0,
     createdAt,
     updatedAt: now,
   };
@@ -1458,10 +1486,13 @@ export const __test = {
   buildTagCounts,
   json,
   loadPublicEntries,
+  markSubmissionReviewed,
   normalizeEntry,
+  normalizeReviewCount,
   normalizeSubmission,
   parseJsonArray,
   publicEntryOnly,
   rowToEntry,
+  rowToSubmission,
   sendRejectionNotice,
 };

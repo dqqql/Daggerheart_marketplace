@@ -1,0 +1,3 @@
+ALTER TABLE submissions
+ADD COLUMN review_count INTEGER NOT NULL DEFAULT 0
+CHECK (review_count BETWEEN 0 AND 2);

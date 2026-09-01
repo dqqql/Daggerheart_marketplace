@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import worker, { __test } from "../frontend/_worker.js";
+
+test("admin review control declares all three states and confirmation flow", async () => {
+  const html = await readFile(new URL("../frontend/admin/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /btn--review-0/);
+  assert.match(html, /btn--review-1/);
+  assert.match(html, /btn--review-2/);
+  assert.match(html, /已审阅 ' \+ reviewCount \+ '\/2/);
+  assert.match(html, /reviewCount >= 2 \? ' disabled aria-disabled="true"'/);
+  assert.match(html, /openConfirm\(\{/);
+  assert.match(html, /\/api\/admin\/submissions\/.*\/reviewed/);
+  assert.match(html, /请由不同审阅者各确认一次/);
+});
 
 test("normalizeEntry mirrors Flask entry cleanup", () => {
   const entry = __test.normalizeEntry({
@@ -68,6 +82,73 @@ test("normalizeSubmission keeps feedback email private-ready and accepts pending
   assert.equal(submission.feedbackEmail, "creator@example.com");
   assert.equal(submission.coverPath, "/the-great-vault/covers/pending/cover.webp");
   assert.equal(submission.recommendValue, 0);
+  assert.equal(submission.reviewCount, 0);
+});
+
+test("normalizeSubmission preserves server-owned review count while editing", () => {
+  const submission = __test.normalizeSubmission({
+    title: "编辑后的投稿",
+    targetUrl: "https://example.com/submission",
+    feedbackEmail: "creator@example.com",
+  }, {
+    existingIds: new Set(),
+    currentSubmission: {
+      id: "sub_existing",
+      reviewCount: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(submission.reviewCount, 1);
+});
+
+test("rowToSubmission exposes a review count capped at two", () => {
+  const baseRow = {
+    id: "sub_reviewed",
+    title: "已审阅投稿",
+    target_url: "https://example.com/reviewed",
+    content_tags: "[]",
+    flavor_tags: "[]",
+  };
+
+  assert.equal(__test.rowToSubmission({ ...baseRow, review_count: 1 }).reviewCount, 1);
+  assert.equal(__test.rowToSubmission({ ...baseRow, review_count: 9 }).reviewCount, 2);
+  assert.equal(__test.rowToSubmission({ ...baseRow, review_count: null }).reviewCount, 0);
+});
+
+test("markSubmissionReviewed increments only below two", async () => {
+  let reviewCount = 0;
+  let updateCalls = 0;
+  const env = {
+    DB: {
+      prepare(sql) {
+        return {
+          bind() { return this; },
+          async run() {
+            updateCalls += 1;
+            if (reviewCount < 2) reviewCount += 1;
+          },
+          async first() {
+            return {
+              id: "sub_review",
+              title: "待审核投稿",
+              target_url: "https://example.com/review",
+              content_tags: "[]",
+              flavor_tags: "[]",
+              review_count: reviewCount,
+              created_at: "2026-01-01T00:00:00.000Z",
+              updated_at: "2026-01-01T00:00:00.000Z",
+            };
+          },
+        };
+      },
+    },
+  };
+
+  assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 1);
+  assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 2);
+  assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 2);
+  assert.equal(updateCalls, 3);
 });
 
 test("buildTagCounts sorts by count then tag", () => {
