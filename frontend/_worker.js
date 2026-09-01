@@ -631,7 +631,7 @@ async function markSubmissionReviewed(env, submissionId) {
   await env.DB.prepare(
     `UPDATE submissions
         SET review_count = review_count + 1, updated_at = ?
-      WHERE id = ? AND review_count < 2`
+      WHERE id = ?`
   ).bind(nowIso(), submissionId).run();
   return loadSubmission(env, submissionId);
 }
@@ -1147,8 +1147,8 @@ function normalizeEntry(payload, options) {
 
 function normalizeReviewCount(value) {
   const count = Number.parseInt(value, 10);
-  if (!Number.isInteger(count) || count < 0) return 0;
-  return Math.min(count, 2);
+  if (!Number.isSafeInteger(count) || count < 0) return 0;
+  return count;
 }
 
 function normalizeSubmission(payload, options) {

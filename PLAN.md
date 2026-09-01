@@ -354,13 +354,13 @@ IP 哈希规则也已经固化：
 - `GET /api/admin/submissions`：读取待审核列表
 - `GET /api/admin/submission-reviews`：读取历史记录
 - `PUT /api/admin/submissions/<submission_id>`：编辑待审核投稿
-- `POST /api/admin/submissions/<submission_id>/reviewed`：将审阅同意次数从 0 增至 1、再增至 2；达到 2 后保持不变
+- `POST /api/admin/submissions/<submission_id>/reviewed`：将审阅次数增加 1，不设上限
 - `DELETE /api/admin/submissions/<submission_id>/reviewed`：取消一次审阅同意；达到 0 后保持不变
 - `POST /api/admin/submissions/<submission_id>/approve`：通过投稿，生成公开条目
 - `DELETE /api/admin/submissions/<submission_id>`：驳回投稿，可接收 `reviewNote`
 - `POST /api/admin/entries/<entry_id>/reject`：复核驳回已发布资源，可接收 `reviewNote`，发送通知后删除资源
 
-待审核列表使用“已审阅”按钮记录多人同意：初始红色代表 `0/2`，第一次确认后变为黄色 `1/2`，第二次确认后变为绿色 `2/2`。两次递增均弹出二次确认；绿色后继续左键点击不会变化。右键点击该按钮可取消一次审阅，使次数递减一档，达到 0 后保持不变。颜色和次数用于代替同意人数提示；绿色表示至少两人同意，投稿基本可以发布。当前管理入口使用共享会话，因此系统记录的是确认次数，不识别具体审阅者身份。
+待审核列表使用“已审阅”按钮记录多人同意：初始红色和第一次确认后的黄色都不显示数字；第二次确认后变为绿色并显示 `1`。绿色后每次左键确认继续加 `1`，依次显示 `2`、`3`、`4`……。右键点击可取消一次审阅，达到 0 后保持不变。绿色表示至少两人同意，投稿基本可以发布；绿色数字用于表示达到该门槛后的累计档位。当前管理入口使用共享会话，因此系统记录的是确认次数，不识别具体审阅者身份。
 
 通过投稿时：
 
@@ -482,7 +482,7 @@ IP 哈希规则也已经固化：
 }
 ```
 
-`feedbackEmail` 在待审核投稿中必填。`reviewCount` 由服务端维护，取值限定为 `0`、`1`、`2`。审核通过后，反馈邮箱会保存为已发布条目的后台私有字段，用于后续复核通知；公开 API 与导出的公共展示数据不暴露该字段。历史记录会保存当次操作关联的邮箱、审阅意见和通知状态。
+`feedbackEmail` 在待审核投稿中必填。`reviewCount` 由服务端维护，是从 `0` 开始且不设上限的整数。审核通过后，反馈邮箱会保存为已发布条目的后台私有字段，用于后续复核通知；公开 API 与导出的公共展示数据不暴露该字段。历史记录会保存当次操作关联的邮箱、审阅意见和通知状态。
 
 SMTP 配置支持环境变量或 `data/runtime/secrets/smtp.json`：
 

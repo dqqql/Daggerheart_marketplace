@@ -13,7 +13,8 @@ test("admin review control declares distinct states, confirmation, and right-cli
   assert.match(html, /--review-red: #963b49/);
   assert.match(html, /--review-yellow: #b58b2d/);
   assert.match(html, /--review-green: #397a52/);
-  assert.match(html, /已审阅 ' \+ reviewCount \+ '\/2/);
+  assert.match(html, /reviewCount >= 2 \? '已审阅 ' \+ \(reviewCount - 1\) : '已审阅'/);
+  assert.match(html, /var reviewState = Math\.min\(2, reviewCount\)/);
   assert.match(html, /openConfirm\(\{/);
   assert.match(html, /确认你已审阅「' \+ \(s\.title \|\| id\) \+ '」吗？；请勿替其他审阅者重复确认。/);
   assert.match(html, /addEventListener\('contextmenu'/);
@@ -107,7 +108,7 @@ test("normalizeSubmission preserves server-owned review count while editing", ()
   assert.equal(submission.reviewCount, 1);
 });
 
-test("rowToSubmission exposes a review count capped at two", () => {
+test("rowToSubmission exposes an unbounded non-negative review count", () => {
   const baseRow = {
     id: "sub_reviewed",
     title: "已审阅投稿",
@@ -117,11 +118,11 @@ test("rowToSubmission exposes a review count capped at two", () => {
   };
 
   assert.equal(__test.rowToSubmission({ ...baseRow, review_count: 1 }).reviewCount, 1);
-  assert.equal(__test.rowToSubmission({ ...baseRow, review_count: 9 }).reviewCount, 2);
+  assert.equal(__test.rowToSubmission({ ...baseRow, review_count: 9 }).reviewCount, 9);
   assert.equal(__test.rowToSubmission({ ...baseRow, review_count: null }).reviewCount, 0);
 });
 
-test("markSubmissionReviewed increments only below two", async () => {
+test("markSubmissionReviewed keeps incrementing after the green threshold", async () => {
   let reviewCount = 0;
   let updateCalls = 0;
   const env = {
@@ -131,7 +132,7 @@ test("markSubmissionReviewed increments only below two", async () => {
           bind() { return this; },
           async run() {
             updateCalls += 1;
-            if (reviewCount < 2) reviewCount += 1;
+            reviewCount += 1;
           },
           async first() {
             return {
@@ -152,7 +153,7 @@ test("markSubmissionReviewed increments only below two", async () => {
 
   assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 1);
   assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 2);
-  assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 2);
+  assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 3);
   assert.equal(updateCalls, 3);
 });
 

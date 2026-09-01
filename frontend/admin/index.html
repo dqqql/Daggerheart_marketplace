@@ -1158,10 +1158,11 @@
         var thumb = s.coverPath
           ? '<img src="' + escAttr(s.coverPath) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><span class="no-cover" style="display:none">&#9876;</span>'
           : '<span class="no-cover">&#9876;</span>';
-        var reviewCount = Math.max(0, Math.min(2, Number(s.reviewCount) || 0));
-        var reviewLabel = '已审阅 ' + reviewCount + '/2';
+        var reviewCount = Math.max(0, Number(s.reviewCount) || 0);
+        var reviewState = Math.min(2, reviewCount);
+        var reviewLabel = reviewCount >= 2 ? '已审阅 ' + (reviewCount - 1) : '已审阅';
         var reviewTitle = reviewCount >= 2
-          ? '已有两次同意；右键可取消一次审阅'
+          ? '已达到绿色审阅状态；左键继续累计，右键取消一次审阅'
           : '左键记录一次审阅；右键可取消一次审阅';
         return '<div class="entry-row submission-row">'
           + '<div class="entry-row-cover">' + thumb + '</div>'
@@ -1178,7 +1179,7 @@
           + '<div class="entry-row-actions">'
           + '<div class="action-btn-group">'
           + '<button class="btn btn--ghost btn--sm sub-edit-btn" data-id="' + escAttr(s.id) + '">编辑</button>'
-          + '<button class="btn btn--sm btn--review-' + reviewCount + ' sub-reviewed-btn" data-id="' + escAttr(s.id) + '" title="' + escAttr(reviewTitle) + '" aria-label="' + escAttr(reviewLabel + '。' + reviewTitle) + '">' + reviewLabel + '</button>'
+          + '<button class="btn btn--sm btn--review-' + reviewState + ' sub-reviewed-btn" data-id="' + escAttr(s.id) + '" title="' + escAttr(reviewTitle) + '" aria-label="' + escAttr(reviewLabel + '。' + reviewTitle) + '">' + reviewLabel + '</button>'
           + '<button class="btn btn--success btn--sm sub-approve-btn" data-id="' + escAttr(s.id) + '">通过</button>'
           + '<button class="btn btn--danger btn--sm sub-reject-btn" data-id="' + escAttr(s.id) + '">驳回</button>'
           + '</div></div>'
@@ -1341,8 +1342,7 @@
     async function markSubmissionReviewed(id) {
       var s = submissions.find(function (x) { return x.id === id; });
       if (!s) return;
-      var reviewCount = Math.max(0, Math.min(2, Number(s.reviewCount) || 0));
-      if (reviewCount >= 2) return;
+      var reviewCount = Math.max(0, Number(s.reviewCount) || 0);
       var nextCount = reviewCount + 1;
       openConfirm({
         message: '确认你已审阅「' + (s.title || id) + '」吗？；请勿替其他审阅者重复确认。',
@@ -1355,7 +1355,7 @@
               return item.id === id ? result.submission : item;
             });
             renderSubmissionList();
-            showToast(nextCount >= 2 ? '已记录第 2 次同意，基本可以发布' : '已记录第 1 次同意');
+            showToast(nextCount >= 2 ? '已记录审阅 ' + (nextCount - 1) : '已记录一次审阅');
           } catch (err) { showToast(err.message, 'error'); }
         }
       });
@@ -1364,7 +1364,7 @@
     async function unmarkSubmissionReviewed(id) {
       var s = submissions.find(function (x) { return x.id === id; });
       if (!s) return;
-      var reviewCount = Math.max(0, Math.min(2, Number(s.reviewCount) || 0));
+      var reviewCount = Math.max(0, Number(s.reviewCount) || 0);
       if (reviewCount <= 0) {
         showToast('当前没有可取消的审阅', 'error');
         return;
