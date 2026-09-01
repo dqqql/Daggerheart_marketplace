@@ -4,17 +4,22 @@ import test from "node:test";
 
 import worker, { __test } from "../frontend/_worker.js";
 
-test("admin review control declares all three states and confirmation flow", async () => {
+test("admin review control declares vivid states, confirmation, and right-click undo", async () => {
   const html = await readFile(new URL("../frontend/admin/index.html", import.meta.url), "utf8");
 
   assert.match(html, /btn--review-0/);
   assert.match(html, /btn--review-1/);
   assert.match(html, /btn--review-2/);
+  assert.match(html, /--review-red: #c5162e/);
+  assert.match(html, /--review-yellow: #ffcc00/);
+  assert.match(html, /--review-green: #07883f/);
   assert.match(html, /已审阅 ' \+ reviewCount \+ '\/2/);
-  assert.match(html, /reviewCount >= 2 \? ' disabled aria-disabled="true"'/);
   assert.match(html, /openConfirm\(\{/);
+  assert.match(html, /确认你已审阅「' \+ \(s\.title \|\| id\) \+ '」吗？；请勿替其他审阅者重复确认。/);
+  assert.match(html, /addEventListener\('contextmenu'/);
+  assert.match(html, /method: 'DELETE'/);
   assert.match(html, /\/api\/admin\/submissions\/.*\/reviewed/);
-  assert.match(html, /请由不同审阅者各确认一次/);
+  assert.doesNotMatch(html, /submission-review-guide/);
 });
 
 test("normalizeEntry mirrors Flask entry cleanup", () => {
@@ -149,6 +154,38 @@ test("markSubmissionReviewed increments only below two", async () => {
   assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 2);
   assert.equal((await __test.markSubmissionReviewed(env, "sub_review")).reviewCount, 2);
   assert.equal(updateCalls, 3);
+});
+
+test("unmarkSubmissionReviewed decrements only above zero", async () => {
+  let reviewCount = 2;
+  const env = {
+    DB: {
+      prepare(sql) {
+        return {
+          bind() { return this; },
+          async run() {
+            if (reviewCount > 0) reviewCount -= 1;
+          },
+          async first() {
+            return {
+              id: "sub_review",
+              title: "待审核投稿",
+              target_url: "https://example.com/review",
+              content_tags: "[]",
+              flavor_tags: "[]",
+              review_count: reviewCount,
+              created_at: "2026-01-01T00:00:00.000Z",
+              updated_at: "2026-01-01T00:00:00.000Z",
+            };
+          },
+        };
+      },
+    },
+  };
+
+  assert.equal((await __test.unmarkSubmissionReviewed(env, "sub_review")).reviewCount, 1);
+  assert.equal((await __test.unmarkSubmissionReviewed(env, "sub_review")).reviewCount, 0);
+  assert.equal((await __test.unmarkSubmissionReviewed(env, "sub_review")).reviewCount, 0);
 });
 
 test("buildTagCounts sorts by count then tag", () => {

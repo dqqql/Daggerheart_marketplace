@@ -29,8 +29,12 @@
       --crimson-light: #a84444;
       --danger: #b84040;
       --danger-hover: #d45050;
-      --review-warning: #d0a63a;
-      --review-complete: #4f9a62;
+      --review-red: #c5162e;
+      --review-red-border: #ff6678;
+      --review-yellow: #ffcc00;
+      --review-yellow-border: #ffe66b;
+      --review-green: #07883f;
+      --review-green-border: #3cff86;
 
       --text-primary: #cec4b0;
       --text-secondary: #a29684;
@@ -79,8 +83,12 @@
       --crimson-light: #a04040;
       --danger: #b04040;
       --danger-hover: #c85050;
-      --review-warning: #9a6f00;
-      --review-complete: #347447;
+      --review-red: #c5162e;
+      --review-red-border: #e8364d;
+      --review-yellow: #f2bd00;
+      --review-yellow-border: #d69f00;
+      --review-green: #07883f;
+      --review-green-border: #16a85a;
 
       --text-primary: #3c3020;
       --text-secondary: #5a4a32;
@@ -691,17 +699,6 @@
     .submission-list, .review-list { display: none; }
     .submission-list.visible, .review-list.visible { display: flex; }
 
-    .submission-review-guide {
-      display: none;
-      margin: 14px 16px 4px;
-      padding: 10px 12px;
-      border-left: 3px solid var(--gold-dim);
-      background: rgba(184,147,66,0.06);
-      color: var(--text-secondary);
-      font-size: 13px;
-      line-height: 1.55;
-    }
-
     /* ── 操作按钮 ── */
     .action-btn-group { display: flex; gap: 6px; }
     .btn--success {
@@ -710,24 +707,29 @@
     }
     .btn--success:hover { background: var(--gold-dim); }
     .btn--review-0 {
-      color: var(--danger-hover);
-      border-color: var(--border-danger);
-      background: rgba(184,64,64,0.12);
+      color: #fff;
+      border-color: var(--review-red-border);
+      background: var(--review-red);
+      font-weight: 700;
+      box-shadow: 0 0 0 1px rgba(255,102,120,0.2), 0 2px 8px rgba(197,22,46,0.3);
     }
-    .btn--review-0:hover { background: rgba(184,64,64,0.22); }
+    .btn--review-0:hover { filter: brightness(1.15) saturate(1.1); }
     .btn--review-1 {
-      color: var(--review-warning);
-      border-color: color-mix(in srgb, var(--review-warning) 45%, transparent);
-      background: color-mix(in srgb, var(--review-warning) 13%, transparent);
+      color: #2a2100;
+      border-color: var(--review-yellow-border);
+      background: var(--review-yellow);
+      font-weight: 700;
+      box-shadow: 0 0 0 1px rgba(255,230,107,0.2), 0 2px 8px rgba(255,204,0,0.28);
     }
-    .btn--review-1:hover { background: color-mix(in srgb, var(--review-warning) 22%, transparent); }
-    .btn--review-2,
-    .btn--review-2:disabled {
-      color: var(--review-complete);
-      border-color: color-mix(in srgb, var(--review-complete) 45%, transparent);
-      background: color-mix(in srgb, var(--review-complete) 14%, transparent);
-      opacity: 1;
+    .btn--review-1:hover { filter: brightness(1.08) saturate(1.1); }
+    .btn--review-2 {
+      color: #fff;
+      border-color: var(--review-green-border);
+      background: var(--review-green);
+      font-weight: 700;
+      box-shadow: 0 0 0 1px rgba(60,255,134,0.18), 0 2px 8px rgba(7,136,63,0.3);
     }
+    .btn--review-2:hover { filter: brightness(1.12) saturate(1.1); }
   </style>
 </head>
 <body>
@@ -772,10 +774,6 @@
     </div>
     <div class="entry-list" id="entryList">
       <div class="loading-spin">加载条目数据…</div>
-    </div>
-
-    <div class="submission-review-guide" id="submissionReviewGuide">
-      使用方法：按钮由红变黄、再变绿，分别代表 0、1、2 次同意。请由不同审阅者各确认一次；变绿表示至少两人同意，基本可以发布。
     </div>
 
     <div class="entry-list-header submission-row" id="submissionListHeader" style="display:none">
@@ -1044,7 +1042,6 @@
     const reviewListHeader = document.getElementById('reviewListHeader');
     const reviewTypeFilter = document.getElementById('reviewTypeFilter');
     const entryListHeader = document.getElementById('entryListHeader');
-    const submissionReviewGuide = document.getElementById('submissionReviewGuide');
 
     let submissions = [];
     let reviews = [];
@@ -1071,7 +1068,6 @@
         tabSubmissions.classList.remove('active');
         tabReviews.classList.remove('active');
         entryListHeader.style.display = '';
-        submissionReviewGuide.style.display = 'none';
         entryList.style.display = '';
         submissionListHeader.style.display = 'none';
         reviewListHeader.style.display = 'none';
@@ -1082,7 +1078,6 @@
         tabSubmissions.classList.add('active');
         tabReviews.classList.remove('active');
         entryListHeader.style.display = 'none';
-        submissionReviewGuide.style.display = 'block';
         entryList.style.display = 'none';
         submissionListHeader.style.display = '';
         reviewListHeader.style.display = 'none';
@@ -1094,7 +1089,6 @@
         tabSubmissions.classList.remove('active');
         tabReviews.classList.add('active');
         entryListHeader.style.display = 'none';
-        submissionReviewGuide.style.display = 'none';
         entryList.style.display = 'none';
         submissionListHeader.style.display = 'none';
         reviewListHeader.style.display = '';
@@ -1166,7 +1160,9 @@
           : '<span class="no-cover">&#9876;</span>';
         var reviewCount = Math.max(0, Math.min(2, Number(s.reviewCount) || 0));
         var reviewLabel = '已审阅 ' + reviewCount + '/2';
-        var reviewTitle = reviewCount >= 2 ? '已有至少两次同意' : '记录第 ' + (reviewCount + 1) + ' 次审阅同意';
+        var reviewTitle = reviewCount >= 2
+          ? '已有两次同意；右键可取消一次审阅'
+          : '左键记录一次审阅；右键可取消一次审阅';
         return '<div class="entry-row submission-row">'
           + '<div class="entry-row-cover">' + thumb + '</div>'
           + '<div><div class="entry-row-title">' + escHtml(s.title) + '</div>'
@@ -1182,7 +1178,7 @@
           + '<div class="entry-row-actions">'
           + '<div class="action-btn-group">'
           + '<button class="btn btn--ghost btn--sm sub-edit-btn" data-id="' + escAttr(s.id) + '">编辑</button>'
-          + '<button class="btn btn--sm btn--review-' + reviewCount + ' sub-reviewed-btn" data-id="' + escAttr(s.id) + '" title="' + escAttr(reviewTitle) + '"' + (reviewCount >= 2 ? ' disabled aria-disabled="true"' : '') + '>' + reviewLabel + '</button>'
+          + '<button class="btn btn--sm btn--review-' + reviewCount + ' sub-reviewed-btn" data-id="' + escAttr(s.id) + '" title="' + escAttr(reviewTitle) + '" aria-label="' + escAttr(reviewLabel + '。' + reviewTitle) + '">' + reviewLabel + '</button>'
           + '<button class="btn btn--success btn--sm sub-approve-btn" data-id="' + escAttr(s.id) + '">通过</button>'
           + '<button class="btn btn--danger btn--sm sub-reject-btn" data-id="' + escAttr(s.id) + '">驳回</button>'
           + '</div></div>'
@@ -1197,6 +1193,10 @@
       });
       submissionListEl.querySelectorAll('.sub-reviewed-btn').forEach(function (b) {
         b.addEventListener('click', function () { markSubmissionReviewed(b.dataset.id); });
+        b.addEventListener('contextmenu', function (event) {
+          event.preventDefault();
+          unmarkSubmissionReviewed(b.dataset.id);
+        });
       });
       submissionListEl.querySelectorAll('.sub-reject-btn').forEach(function (b) {
         b.addEventListener('click', function () { rejectSubmission(b.dataset.id); });
@@ -1345,7 +1345,7 @@
       if (reviewCount >= 2) return;
       var nextCount = reviewCount + 1;
       openConfirm({
-        message: '确认你已审阅并同意「' + (s.title || id) + '」吗？这是第 ' + nextCount + ' 次同意；请勿替其他审阅者重复确认。',
+        message: '确认你已审阅「' + (s.title || id) + '」吗？；请勿替其他审阅者重复确认。',
         okText: '确认已审阅',
         okClass: reviewCount === 0 ? 'btn--review-1' : 'btn--review-2',
         onConfirm: async function () {
@@ -1359,6 +1359,24 @@
           } catch (err) { showToast(err.message, 'error'); }
         }
       });
+    }
+
+    async function unmarkSubmissionReviewed(id) {
+      var s = submissions.find(function (x) { return x.id === id; });
+      if (!s) return;
+      var reviewCount = Math.max(0, Math.min(2, Number(s.reviewCount) || 0));
+      if (reviewCount <= 0) {
+        showToast('当前没有可取消的审阅', 'error');
+        return;
+      }
+      try {
+        var result = await api('/api/admin/submissions/' + id + '/reviewed', { method: 'DELETE' });
+        submissions = submissions.map(function (item) {
+          return item.id === id ? result.submission : item;
+        });
+        renderSubmissionList();
+        showToast('已取消一次审阅');
+      } catch (err) { showToast(err.message, 'error'); }
     }
 
     async function approveSubmission(id) {

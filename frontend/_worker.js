@@ -209,6 +209,13 @@ async function handleApi(request, env, ctx, path) {
     );
     return json({ submission });
   }
+  if (method === "DELETE" && reviewedMatch) {
+    const submission = await unmarkSubmissionReviewed(
+      env,
+      decodeURIComponent(reviewedMatch[1])
+    );
+    return json({ submission });
+  }
 
   return json({ error: "not found" }, 404);
 }
@@ -625,6 +632,15 @@ async function markSubmissionReviewed(env, submissionId) {
     `UPDATE submissions
         SET review_count = review_count + 1, updated_at = ?
       WHERE id = ? AND review_count < 2`
+  ).bind(nowIso(), submissionId).run();
+  return loadSubmission(env, submissionId);
+}
+
+async function unmarkSubmissionReviewed(env, submissionId) {
+  await env.DB.prepare(
+    `UPDATE submissions
+        SET review_count = review_count - 1, updated_at = ?
+      WHERE id = ? AND review_count > 0`
   ).bind(nowIso(), submissionId).run();
   return loadSubmission(env, submissionId);
 }
@@ -1495,4 +1511,5 @@ export const __test = {
   rowToEntry,
   rowToSubmission,
   sendRejectionNotice,
+  unmarkSubmissionReviewed,
 };
