@@ -4,15 +4,15 @@ import test from "node:test";
 
 import worker, { __test } from "../frontend/_worker.js";
 
-test("admin review control declares vivid states, confirmation, and right-click undo", async () => {
+test("admin review control declares distinct states, confirmation, and right-click undo", async () => {
   const html = await readFile(new URL("../frontend/admin/index.html", import.meta.url), "utf8");
 
   assert.match(html, /btn--review-0/);
   assert.match(html, /btn--review-1/);
   assert.match(html, /btn--review-2/);
-  assert.match(html, /--review-red: #c5162e/);
-  assert.match(html, /--review-yellow: #ffcc00/);
-  assert.match(html, /--review-green: #07883f/);
+  assert.match(html, /--review-red: #963b49/);
+  assert.match(html, /--review-yellow: #b58b2d/);
+  assert.match(html, /--review-green: #397a52/);
   assert.match(html, /已审阅 ' \+ reviewCount \+ '\/2/);
   assert.match(html, /openConfirm\(\{/);
   assert.match(html, /确认你已审阅「' \+ \(s\.title \|\| id\) \+ '」吗？；请勿替其他审阅者重复确认。/);
