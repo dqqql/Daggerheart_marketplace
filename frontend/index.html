@@ -1367,6 +1367,12 @@
       font-size: 13px;
       line-height: 1.7;
     }
+    .subscribe-existing-email {
+      display: inline-block;
+      margin-top: 8px;
+      color: var(--gold-light);
+      overflow-wrap: anywhere;
+    }
     .subscribe-label {
       display: block;
       margin-bottom: 7px;
@@ -1388,6 +1394,20 @@
     .subscribe-input:focus {
       border-color: var(--gold-dim);
       box-shadow: 0 0 0 2px rgba(184, 147, 66, 0.1);
+    }
+    #subscribeModal .btn--danger {
+      margin-right: auto;
+      background: rgba(132, 52, 52, 0.12);
+      color: var(--crimson-light);
+      border-color: rgba(168, 68, 68, 0.35);
+    }
+    #subscribeModal .btn--danger:hover {
+      background: rgba(132, 52, 52, 0.24);
+      border-color: var(--crimson-light);
+    }
+    #subscribeModal .btn:focus-visible {
+      outline: 2px solid var(--gold-light);
+      outline-offset: 2px;
     }
 
     /* ── Toolbar actions ── */
@@ -1540,14 +1560,24 @@
         <span class="modal-title" id="subscribeModalTitle">订阅通知</span>
         <button class="modal-close" id="subscribeModalClose" type="button" aria-label="关闭">&times;</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" id="subscribeFormState">
         <p class="subscribe-description">留下邮箱，新作品上线宏伟宝库时，我们会发送一封通知。</p>
         <label class="subscribe-label" for="subscribeEmail">邮箱</label>
         <input class="subscribe-input" id="subscribeEmail" type="email" autocomplete="email" placeholder="name@example.com">
       </div>
-      <div class="modal-footer">
+      <div class="modal-body" id="subscribeExistingState" hidden>
+        <p class="subscribe-description">
+          这个邮箱已经填写过了，无需重复订阅。<br>
+          <span class="subscribe-existing-email" id="subscribeExistingEmail"></span>
+        </p>
+      </div>
+      <div class="modal-footer" id="subscribeFormFooter">
         <button class="btn btn--ghost" id="subscribeCancel" type="button">取消</button>
         <button class="btn btn--gold" id="subscribeSave" type="button">确认订阅</button>
+      </div>
+      <div class="modal-footer" id="subscribeExistingFooter" hidden>
+        <button class="btn btn--danger" id="unsubscribeBtn" type="button">取消订阅</button>
+        <button class="btn btn--ghost" id="subscribeExistingClose" type="button">关闭</button>
       </div>
     </div>
   </div>
@@ -2133,6 +2163,14 @@
     const subscribeCancel = document.getElementById('subscribeCancel');
     const subscribeSave = document.getElementById('subscribeSave');
     const subscribeEmail = document.getElementById('subscribeEmail');
+    const subscribeFormState = document.getElementById('subscribeFormState');
+    const subscribeExistingState = document.getElementById('subscribeExistingState');
+    const subscribeFormFooter = document.getElementById('subscribeFormFooter');
+    const subscribeExistingFooter = document.getElementById('subscribeExistingFooter');
+    const subscribeExistingEmail = document.getElementById('subscribeExistingEmail');
+    const unsubscribeBtn = document.getElementById('unsubscribeBtn');
+    const subscribeExistingClose = document.getElementById('subscribeExistingClose');
+    let existingSubscriptionEmail = '';
 
     function mountSubmitForm() {
       submitForm = window.ResourceForm.create({
@@ -2182,6 +2220,7 @@
     submitCancel.addEventListener('click', closeSubmitModal);
 
     function openSubscribeModal() {
+      showSubscribeForm();
       subscribeModal.classList.add('visible');
       document.body.style.overflow = 'hidden';
       requestAnimationFrame(function () { subscribeEmail.focus(); });
@@ -2191,6 +2230,26 @@
       subscribeModal.classList.remove('visible');
       document.body.style.overflow = '';
       subscribeEmail.value = '';
+      showSubscribeForm();
+    }
+
+    function showSubscribeForm() {
+      existingSubscriptionEmail = '';
+      subscribeExistingEmail.textContent = '';
+      subscribeFormState.hidden = false;
+      subscribeFormFooter.hidden = false;
+      subscribeExistingState.hidden = true;
+      subscribeExistingFooter.hidden = true;
+    }
+
+    function showExistingSubscription(email) {
+      existingSubscriptionEmail = email;
+      subscribeExistingEmail.textContent = email;
+      subscribeFormState.hidden = true;
+      subscribeFormFooter.hidden = true;
+      subscribeExistingState.hidden = false;
+      subscribeExistingFooter.hidden = false;
+      requestAnimationFrame(function () { unsubscribeBtn.focus(); });
     }
 
     async function saveSubscription() {
@@ -2209,8 +2268,12 @@
         });
         var data = await res.json().catch(function () { return {}; });
         if (!res.ok) throw new Error(data.error || '订阅失败');
-        closeSubscribeModal();
-        showToast(data.alreadySubscribed ? '该邮箱已订阅' : '订阅成功', 'success');
+        if (data.alreadySubscribed) {
+          showExistingSubscription(email.toLowerCase());
+        } else {
+          closeSubscribeModal();
+          showToast('订阅成功', 'success');
+        }
       } catch (err) {
         showToast(err.message, 'error');
       } finally {
@@ -2218,10 +2281,34 @@
       }
     }
 
+    async function cancelSubscription() {
+      if (!existingSubscriptionEmail) return;
+      unsubscribeBtn.disabled = true;
+      subscribeExistingClose.disabled = true;
+      try {
+        var res = await fetch(API_BASE + '/api/public/subscriptions', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ email: existingSubscriptionEmail })
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.error || '取消订阅失败');
+        closeSubscribeModal();
+        showToast(data.unsubscribed ? '已取消订阅' : '该邮箱已取消订阅', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        unsubscribeBtn.disabled = false;
+        subscribeExistingClose.disabled = false;
+      }
+    }
+
     subscribeBtn.addEventListener('click', openSubscribeModal);
     subscribeClose.addEventListener('click', closeSubscribeModal);
     subscribeCancel.addEventListener('click', closeSubscribeModal);
+    subscribeExistingClose.addEventListener('click', closeSubscribeModal);
     subscribeSave.addEventListener('click', saveSubscription);
+    unsubscribeBtn.addEventListener('click', cancelSubscription);
     subscribeEmail.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') saveSubscription();
     });

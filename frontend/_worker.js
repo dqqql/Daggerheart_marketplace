@@ -117,6 +117,10 @@ async function handleApi(request, env, ctx, path) {
     const subscription = await createNotificationSubscription(env, await readJson(request));
     return json(subscription, 201);
   }
+  if (method === "DELETE" && path === "/api/public/subscriptions") {
+    const subscription = await cancelNotificationSubscription(env, await readJson(request));
+    return json(subscription);
+  }
   if (method === "POST" && path === "/api/public/covers") {
     return uploadCover(request, env, "pending");
   }
@@ -404,6 +408,14 @@ async function createNotificationSubscription(env, payload) {
     "INSERT OR IGNORE INTO notification_subscribers (email, created_at) VALUES (?, ?)"
   ).bind(email, nowIso()).run();
   return { subscribed: true, alreadySubscribed: Number(result.meta && result.meta.changes) === 0 };
+}
+
+async function cancelNotificationSubscription(env, payload) {
+  const email = normalizeSubscriberEmail(payload && payload.email);
+  const result = await env.DB.prepare(
+    "DELETE FROM notification_subscribers WHERE email = ?"
+  ).bind(email).run();
+  return { subscribed: false, unsubscribed: Number(result.meta && result.meta.changes) > 0 };
 }
 
 async function updateEntry(env, entryId, payload) {
@@ -1605,6 +1617,7 @@ export const __test = {
   buildRejectionHtml,
   buildRejectionText,
   buildTagCounts,
+  cancelNotificationSubscription,
   json,
   loadPublicEntries,
   markSubmissionReviewed,

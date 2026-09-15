@@ -349,7 +349,8 @@ IP 哈希规则也已经固化：
 
 - `POST /api/public/submissions`：写入 `submissions.json`
 - `POST /api/public/covers`：写入 `covers/pending/`
-- `POST /api/public/subscriptions`：将邮箱规范化后写入 D1 订阅表，重复订阅保持幂等
+- `POST /api/public/subscriptions`：将邮箱规范化后写入 D1 订阅表；重复邮箱返回 `alreadySubscribed: true`
+- `DELETE /api/public/subscriptions`：按规范化邮箱取消订阅，重复取消保持幂等
 
 管理审核接口：
 
@@ -487,7 +488,7 @@ IP 哈希规则也已经固化：
 
 `feedbackEmail` 在待审核投稿中必填。`reviewCount` 由服务端维护，是从 `0` 开始且不设上限的整数。审核通过后，反馈邮箱会保存为已发布条目的后台私有字段，用于后续复核通知；公开 API 与导出的公共展示数据不暴露该字段。历史记录会保存当次操作关联的邮箱、审阅意见和通知状态。
 
-新作品订阅邮箱保存在 D1 的 `notification_subscribers` 表中，以规范化的小写邮箱为主键去重。后台直接新建资源或审核通过投稿后，Worker 都会通过与审核通知相同的 Resend 配置异步发送上线通知；发送失败不回滚资源上线。
+新作品订阅邮箱保存在 D1 的 `notification_subscribers` 表中，以规范化的小写邮箱为主键去重。访客重复填写时，首页弹窗会提示该邮箱已经填写过，并提供“取消订阅”和“关闭”操作。后台直接新建资源或审核通过投稿后，Worker 都会通过与审核通知相同的 Resend 配置异步发送上线通知；发送失败不回滚资源上线。
 
 SMTP 配置支持环境变量或 `data/runtime/secrets/smtp.json`：
 

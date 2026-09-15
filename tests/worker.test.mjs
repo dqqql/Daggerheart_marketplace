@@ -32,6 +32,10 @@ test("homepage exposes one filter trigger and the notification subscription flow
   assert.match(html, /id="submitEntryBtn"[^>]*>提交资源<\/button>\s*<button[^>]*id="subscribeBtn"[^>]*>订阅通知/);
   assert.match(html, /fetch\(API_BASE \+ '\/api\/public\/subscriptions'/);
   assert.match(html, /id="subscribeEmail"[^>]*type="email"/);
+  assert.match(html, /这个邮箱已经填写过了，无需重复订阅/);
+  assert.match(html, /id="unsubscribeBtn"[^>]*>取消订阅<\/button>/);
+  assert.match(html, /id="subscribeExistingClose"[^>]*>关闭<\/button>/);
+  assert.match(html, /method: 'DELETE'/);
 });
 
 test("normalizeEntry mirrors Flask entry cleanup", () => {
@@ -449,6 +453,33 @@ test("normalizeSubscriberEmail lowercases valid addresses and rejects invalid in
   assert.equal(__test.normalizeSubscriberEmail(" Reader@Example.COM "), "reader@example.com");
   assert.throws(() => __test.normalizeSubscriberEmail("not-an-email"), /valid email address/);
   assert.throws(() => __test.normalizeSubscriberEmail(""), /email is required/);
+});
+
+test("cancelNotificationSubscription removes the normalized address", async () => {
+  const calls = [];
+  const env = {
+    DB: {
+      prepare(sql) {
+        calls.push({ sql });
+        return {
+          bind(email) {
+            calls[0].email = email;
+            return {
+              async run() {
+                return { meta: { changes: 1 } };
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+
+  const result = await __test.cancelNotificationSubscription(env, { email: " Reader@Example.COM " });
+
+  assert.deepEqual(result, { subscribed: false, unsubscribed: true });
+  assert.match(calls[0].sql, /DELETE FROM notification_subscribers/);
+  assert.equal(calls[0].email, "reader@example.com");
 });
 
 test("sendNewEntryNotifications reuses the review mail configuration and exact notice copy", async () => {
