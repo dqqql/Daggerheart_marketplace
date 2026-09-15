@@ -23,6 +23,17 @@ test("admin review control declares distinct states, confirmation, and right-cli
   assert.doesNotMatch(html, /submission-review-guide/);
 });
 
+test("homepage exposes one filter trigger and the notification subscription flow", async () => {
+  const html = await readFile(new URL("../frontend/index.html", import.meta.url), "utf8");
+
+  assert.match(html, /id="filterTrigger"[^>]*>[\s\S]*?筛选/);
+  assert.doesNotMatch(html, /id="contentTagTrigger"/);
+  assert.doesNotMatch(html, /id="flavorTagTrigger"/);
+  assert.match(html, /id="submitEntryBtn"[^>]*>提交资源<\/button>\s*<button[^>]*id="subscribeBtn"[^>]*>订阅通知/);
+  assert.match(html, /fetch\(API_BASE \+ '\/api\/public\/subscriptions'/);
+  assert.match(html, /id="subscribeEmail"[^>]*type="email"/);
+});
+
 test("normalizeEntry mirrors Flask entry cleanup", () => {
   const entry = __test.normalizeEntry({
     id: "dhm_manual",
@@ -432,6 +443,50 @@ test("normalizeSubmission requires feedback email", () => {
     }, { existingIds: new Set() }),
     /feedbackEmail is required/
   );
+});
+
+test("normalizeSubscriberEmail lowercases valid addresses and rejects invalid input", () => {
+  assert.equal(__test.normalizeSubscriberEmail(" Reader@Example.COM "), "reader@example.com");
+  assert.throws(() => __test.normalizeSubscriberEmail("not-an-email"), /valid email address/);
+  assert.throws(() => __test.normalizeSubscriberEmail(""), /email is required/);
+});
+
+test("sendNewEntryNotifications reuses the review mail configuration and exact notice copy", async () => {
+  const calls = [];
+  const env = {
+    RESEND_API_KEY: "test_key",
+    RESEND_FROM: "宏伟宝库 <review@mail.dhvault.top>",
+    RESEND_REPLY_TO: "contact@dhvault.top",
+    DB: {
+      prepare(sql) {
+        assert.match(sql, /notification_subscribers/);
+        return {
+          async all() {
+            return { results: [{ email: "one@example.com" }, { email: "two@example.com" }] };
+          },
+        };
+      },
+    },
+  };
+
+  const result = await __test.sendNewEntryNotifications(
+    env,
+    { title: "龙焰遗迹", author: "星火" },
+    async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ id: "email_123" }), { status: 200 });
+    }
+  );
+
+  assert.deepEqual(result, { status: "sent", total: 2, sent: 2, failed: 0 });
+  assert.equal(calls.length, 2);
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.from, "宏伟宝库 <review@mail.dhvault.top>");
+  assert.equal(body.to, "one@example.com");
+  assert.equal(body.reply_to, "contact@dhvault.top");
+  assert.equal(body.subject, "宏伟宝库新作品上线：龙焰遗迹");
+  assert.equal(body.text, "您好：\n新作品 龙焰遗迹 ，作者：星火\n已上线宏伟宝库，敬请查阅。");
+  assert.match(body.html, /<p>您好：<\/p><p>新作品 龙焰遗迹 ，作者：星火<\/p><p>已上线宏伟宝库，敬请查阅。<\/p>/);
 });
 
 test("sendRejectionNotice skips Resend when email or API key is missing", async () => {

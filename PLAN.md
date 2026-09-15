@@ -65,9 +65,10 @@
 工具栏包含：
 
 - 搜索框
-- 内容标签按钮
-- 风味标签按钮
+- 筛选按钮（弹窗内仍分为内容标签与风味标签两列）
 - 亮暗主题切换按钮
+- 提交资源按钮
+- 订阅通知按钮
 
 左侧分区导航只有在“未搜索、未筛选”的浏览态才显示。进入搜索或标签筛选后，会切回单一结果列表，导航隐藏。
 
@@ -348,6 +349,7 @@ IP 哈希规则也已经固化：
 
 - `POST /api/public/submissions`：写入 `submissions.json`
 - `POST /api/public/covers`：写入 `covers/pending/`
+- `POST /api/public/subscriptions`：将邮箱规范化后写入 D1 订阅表，重复订阅保持幂等
 
 管理审核接口：
 
@@ -370,6 +372,7 @@ IP 哈希规则也已经固化：
 - 初始化 `likeCount: 0` 与 `likedBy: []`
 - 将 `feedbackEmail` 保存为已发布条目的后台私有字段，但不进入公共 API
 - 根据反馈邮箱发送“投稿已收录”通知
+- 向订阅邮箱发送新作品上线通知
 - 向 `submission_reviews.json` 追加 `approved` 历史记录
 
 驳回投稿时：
@@ -483,6 +486,8 @@ IP 哈希规则也已经固化：
 ```
 
 `feedbackEmail` 在待审核投稿中必填。`reviewCount` 由服务端维护，是从 `0` 开始且不设上限的整数。审核通过后，反馈邮箱会保存为已发布条目的后台私有字段，用于后续复核通知；公开 API 与导出的公共展示数据不暴露该字段。历史记录会保存当次操作关联的邮箱、审阅意见和通知状态。
+
+新作品订阅邮箱保存在 D1 的 `notification_subscribers` 表中，以规范化的小写邮箱为主键去重。后台直接新建资源或审核通过投稿后，Worker 都会通过与审核通知相同的 Resend 配置异步发送上线通知；发送失败不回滚资源上线。
 
 SMTP 配置支持环境变量或 `data/runtime/secrets/smtp.json`：
 
@@ -631,6 +636,7 @@ ID 规则：
 - `frontend/_worker.js`：Cloudflare Pages advanced mode Worker，处理公开 API、管理 API、投稿审核、旧 URL 兼容和 R2 封面代理。
 - `migrations/0001_initial.sql`：D1 初始 schema，包含 `entries`、`entry_likes`、`submissions`、`submission_reviews`。
 - `migrations/0002_history_and_entry_feedback_email.sql`：为 `entries` 增加后台私有 `feedback_email`，并扩展历史记录 action 类型。
+- `migrations/0005_notification_subscribers.sql`：新增去重保存通知邮箱的 `notification_subscribers` 表。
 - `wrangler.jsonc` / `package.json`：Pages、D1、R2 的本地开发与部署配置骨架。
 - `scripts/build_d1_import.mjs`：将现有 entries JSON 转为 D1 SQL，迁移 `likedBy` 为 `entry_likes`。
 - `scripts/upload_covers_to_r2.ps1`：按 entries JSON 引用的封面文件名，从 zip 中匹配并上传到 R2。
@@ -641,7 +647,7 @@ ID 规则：
 - 公开条目返回 `likeCount`，不返回 `likedBy`；D1 内部将点赞拆为 `entry_likes` 表并通过 SQL 聚合计数。
 - `/api/public/bootstrap`、`/api/public/entries`、`/api/public/tags` 走短 TTL 边缘缓存；`/api/public/likes` 保持按当前 IP 个性化且不共享缓存。
 - 封面上传改写到 R2，公开路径仍保持 `/the-great-vault/covers/<file>` 和 `/the-great-vault/covers/pending/<file>`。
-- Worker 使用 Resend HTTP API 发送通过、投稿驳回和已发布资源复核驳回邮件；相关操作均写入历史记录，邮件发送失败不回滚审核/删除操作。
+- Worker 使用 Resend HTTP API 发送通过、投稿驳回、已发布资源复核驳回和新作品上线邮件；上线通知复用审核邮件的发件配置，发送失败不回滚资源上线。
 
 当前验证状态：
 

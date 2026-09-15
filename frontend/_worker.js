@@ -113,6 +113,10 @@ async function handleApi(request, env, ctx, path) {
     const submission = await createSubmission(env, payload);
     return json({ submission }, 201);
   }
+  if (method === "POST" && path === "/api/public/subscriptions") {
+    const subscription = await createNotificationSubscription(env, await readJson(request));
+    return json(subscription, 201);
+  }
   if (method === "POST" && path === "/api/public/covers") {
     return uploadCover(request, env, "pending");
   }
@@ -137,6 +141,7 @@ async function handleApi(request, env, ctx, path) {
   }
   if (method === "POST" && path === "/api/admin/entries") {
     const entry = await createEntry(env, await readJson(request));
+    scheduleNewEntryNotifications(ctx, env, entry);
     schedulePublicDirectoryCachePurge(ctx, request);
     return json({ entry }, 201);
   }
@@ -196,9 +201,10 @@ async function handleApi(request, env, ctx, path) {
 
   const approveMatch = path.match(/^\/api\/admin\/submissions\/([^/]+)\/approve$/);
   if (method === "POST" && approveMatch) {
-    const response = await approveSubmission(env, decodeURIComponent(approveMatch[1]));
+    const result = await approveSubmission(env, decodeURIComponent(approveMatch[1]));
+    scheduleNewEntryNotifications(ctx, env, result.entry);
     schedulePublicDirectoryCachePurge(ctx, request);
-    return response;
+    return json({ entry: publicEntryOnly(result.entry), notification: result.notification });
   }
 
   const reviewedMatch = path.match(/^\/api\/admin\/submissions\/([^/]+)\/reviewed$/);
@@ -390,6 +396,14 @@ async function createEntry(env, payload) {
   await insertEntry(env, entry);
   await insertHistoryRecord(env, await buildHistoryRecord(env, { source: entry, action: "entry_created" }));
   return entry;
+}
+
+async function createNotificationSubscription(env, payload) {
+  const email = normalizeSubscriberEmail(payload && payload.email);
+  const result = await env.DB.prepare(
+    "INSERT OR IGNORE INTO notification_subscribers (email, created_at) VALUES (?, ?)"
+  ).bind(email, nowIso()).run();
+  return { subscribed: true, alreadySubscribed: Number(result.meta && result.meta.changes) === 0 };
 }
 
 async function updateEntry(env, entryId, payload) {
@@ -759,7 +773,7 @@ async function approveSubmission(env, submissionId) {
     ),
     reviewInsertStatement(env, review),
   ]);
-  return json({ entry: publicEntryOnly(entry), notification });
+  return { entry, notification };
 }
 
 async function rejectSubmission(env, submissionId, reviewNote) {
@@ -801,6 +815,87 @@ async function sendPublishedRejectionNotice(env, entry, reviewNote, fetchImpl = 
     reviewNote,
     fetchImpl,
   });
+}
+
+function scheduleNewEntryNotifications(ctx, env, entry) {
+  const task = sendNewEntryNotifications(env, entry).then((result) => {
+    if (result.failed > 0) {
+      console.error(`subscriber notification failed for ${result.failed}/${result.total} recipients`);
+    }
+  }).catch((error) => {
+    console.error("subscriber notification task failed", error);
+  });
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(task);
+  } else {
+    void task;
+  }
+}
+
+async function sendNewEntryNotifications(env, entry, fetchImpl = fetch) {
+  if (!env.RESEND_API_KEY) return { status: "skipped", reason: "not_configured", total: 0, sent: 0, failed: 0 };
+  const result = await env.DB.prepare(
+    "SELECT email FROM notification_subscribers ORDER BY created_at, email"
+  ).all();
+  const recipients = result.results.map((row) => normalizeOptionalText(row.email)).filter(Boolean);
+  if (!recipients.length) return { status: "skipped", reason: "no_subscribers", total: 0, sent: 0, failed: 0 };
+
+  let sent = 0;
+  let failed = 0;
+  for (let index = 0; index < recipients.length; index += 20) {
+    const batch = recipients.slice(index, index + 20);
+    const outcomes = await Promise.all(batch.map((recipient) => sendNewEntryNotice(env, entry, recipient, fetchImpl)));
+    sent += outcomes.filter((outcome) => outcome.status === "sent").length;
+    failed += outcomes.filter((outcome) => outcome.status !== "sent").length;
+  }
+  return { status: failed ? "partial" : "sent", total: recipients.length, sent, failed };
+}
+
+async function sendNewEntryNotice(env, entry, recipient, fetchImpl = fetch) {
+  const content = buildNewEntryNoticeContent(entry);
+  const payload = {
+    from: normalizeOptionalText(env.RESEND_FROM) || DEFAULT_RESEND_FROM,
+    to: recipient,
+    subject: content.subject,
+    text: content.text,
+    html: content.html,
+  };
+  const replyTo = normalizeOptionalText(env.RESEND_REPLY_TO);
+  if (replyTo) payload.reply_to = replyTo;
+
+  try {
+    const response = await fetchImpl(RESEND_EMAIL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      return { status: "failed", reason: "send_failed", message: await readResendError(response) };
+    }
+    return { status: "sent" };
+  } catch (error) {
+    return {
+      status: "failed",
+      reason: "send_failed",
+      message: compactErrorMessage(error && error.message ? error.message : String(error)),
+    };
+  }
+}
+
+function buildNewEntryNoticeContent(entry) {
+  const title = normalizeOptionalText(entry && entry.title) || "未命名资源";
+  const author = normalizeOptionalText(entry && entry.author) || "未署名";
+  return noticeContent(
+    `宏伟宝库新作品上线：${title}`,
+    [
+      "您好：",
+      `新作品 ${title} ，作者：${author}`,
+      "已上线宏伟宝库，敬请查阅。",
+    ]
+  );
 }
 
 async function sendNotice(env, resource, options) {
@@ -1256,6 +1351,15 @@ function normalizeFeedbackEmail(value) {
   return email;
 }
 
+function normalizeSubscriberEmail(value) {
+  const email = normalizeOptionalText(value).toLowerCase();
+  if (!email) throw new ValidationError("email is required");
+  if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw new ValidationError("email must be a valid email address");
+  }
+  return email;
+}
+
 function normalizeOptionalFeedbackEmail(value) {
   const email = normalizeOptionalText(value).toLowerCase();
   if (!email) return "";
@@ -1496,6 +1600,7 @@ function base64UrlDecode(value) {
 
 export const __test = {
   ValidationError,
+  buildNewEntryNoticeContent,
   buildRejectionEmailPayload,
   buildRejectionHtml,
   buildRejectionText,
@@ -1506,10 +1611,12 @@ export const __test = {
   normalizeEntry,
   normalizeReviewCount,
   normalizeSubmission,
+  normalizeSubscriberEmail,
   parseJsonArray,
   publicEntryOnly,
   rowToEntry,
   rowToSubmission,
   sendRejectionNotice,
+  sendNewEntryNotifications,
   unmarkSubmissionReviewed,
 };

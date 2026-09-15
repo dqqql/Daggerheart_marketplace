@@ -316,6 +316,12 @@
       border-color: var(--gold-dim);
       color: var(--text-primary);
     }
+    .tag-trigger:focus-visible,
+    .theme-toggle:focus-visible,
+    .toolbar-action:focus-visible {
+      outline: 2px solid var(--gold-light);
+      outline-offset: 2px;
+    }
     .tag-trigger.active {
       border-color: var(--gold);
       color: var(--gold-light);
@@ -1103,7 +1109,7 @@
         height: 30px;
         font-size: 14px;
       }
-      .toolbar .btn--submit {
+      .toolbar .toolbar-action {
         order: 2;
         margin-left: 0;
         padding: 5px 8px;
@@ -1348,8 +1354,44 @@
     #submitModalOverlay .btn--sm { padding: 5px 12px; font-size: 12px; }
     #submitModalOverlay .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* ── Submit Toolbar Btn ── */
-    .toolbar .btn--submit {
+    /* ── Subscribe Modal ── */
+    #subscribeModal .modal { width: 460px; }
+    #subscribeModal .modal-body {
+      display: block;
+      padding: 22px 24px 24px;
+      overflow: visible;
+    }
+    .subscribe-description {
+      margin: 0 0 18px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .subscribe-label {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+    .subscribe-input {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border: 1px solid var(--border-input);
+      border-radius: var(--radius-md);
+      font-family: var(--font-body);
+      font-size: 14px;
+      outline: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .subscribe-input:focus {
+      border-color: var(--gold-dim);
+      box-shadow: 0 0 0 2px rgba(184, 147, 66, 0.1);
+    }
+
+    /* ── Toolbar actions ── */
+    .toolbar .toolbar-action {
       margin-left: auto;
       background: var(--gold-dark); color: var(--gold-bright);
       border-color: var(--border-gold); border-radius: var(--radius-md);
@@ -1358,9 +1400,20 @@
       transition: all var(--transition-fast);
       white-space: nowrap;
     }
-    .toolbar .btn--submit:hover {
+    .toolbar .toolbar-action + .toolbar-action { margin-left: 0; }
+    .toolbar .toolbar-action:hover {
       background: var(--gold-dim); color: var(--gold-bright);
       border-color: var(--border-gold-strong);
+    }
+    .toolbar .btn--subscribe {
+      background: transparent;
+      color: var(--text-secondary);
+      border-color: var(--border-medium);
+    }
+    .toolbar .btn--subscribe:hover {
+      background: var(--bg-elevated);
+      color: var(--gold-light);
+      border-color: var(--gold-dim);
     }
   </style>
 </head>
@@ -1392,20 +1445,16 @@
           >
           <button class="search-clear" id="searchClear" aria-label="清除搜索">&times;</button>
         </div>
-        <button class="tag-trigger" id="contentTagTrigger" aria-haspopup="dialog">
-          内容标签
-          <span class="tag-trigger-count" id="contentTagCount">0</span>
-          <span class="tag-trigger-caret">&#9660;</span>
-        </button>
-        <button class="tag-trigger" id="flavorTagTrigger" aria-haspopup="dialog">
-          风味标签
-          <span class="tag-trigger-count" id="flavorTagCount">0</span>
+        <button class="tag-trigger" id="filterTrigger" aria-haspopup="dialog">
+          筛选
+          <span class="tag-trigger-count" id="filterCount">0</span>
           <span class="tag-trigger-caret">&#9660;</span>
         </button>
         <button class="theme-toggle" id="themeToggle" aria-label="切换亮色/暗色主题" title="切换主题">
           &#9788;
         </button>
-        <button class="btn--submit" id="submitEntryBtn">提交资源</button>
+        <button class="toolbar-action btn--submit" id="submitEntryBtn">提交资源</button>
+        <button class="toolbar-action btn--subscribe" id="subscribeBtn">订阅通知</button>
       </div>
       <div class="active-filters" id="activeFilters"></div>
 
@@ -1480,6 +1529,25 @@
       <div class="modal-footer">
         <button class="btn btn--ghost" id="submitModalCancelBtn" type="button">取消</button>
         <button class="btn btn--gold" id="submitModalSaveBtn" type="button">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 订阅通知 Modal -->
+  <div class="modal-overlay" id="subscribeModal" role="dialog" aria-modal="true" aria-labelledby="subscribeModalTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title" id="subscribeModalTitle">订阅通知</span>
+        <button class="modal-close" id="subscribeModalClose" type="button" aria-label="关闭">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="subscribe-description">留下邮箱，新作品上线宏伟宝库时，我们会发送一封通知。</p>
+        <label class="subscribe-label" for="subscribeEmail">邮箱</label>
+        <input class="subscribe-input" id="subscribeEmail" type="email" autocomplete="email" placeholder="name@example.com">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost" id="subscribeCancel" type="button">取消</button>
+        <button class="btn btn--gold" id="subscribeSave" type="button">确认订阅</button>
       </div>
     </div>
   </div>
@@ -1563,10 +1631,8 @@
     const dom = {
       searchInput: $('#searchInput'),
       searchClear: $('#searchClear'),
-      contentTagTrigger: $('#contentTagTrigger'),
-      flavorTagTrigger: $('#flavorTagTrigger'),
-      contentTagCount: $('#contentTagCount'),
-      flavorTagCount: $('#flavorTagCount'),
+      filterTrigger: $('#filterTrigger'),
+      filterCount: $('#filterCount'),
       activeFilters: $('#activeFilters'),
       cardGrid: $('#cardGrid'),
       resultsCount: $('#resultsCount'),
@@ -1690,10 +1756,9 @@
     function renderTagTriggerStates() {
       const sc = state.selectedContentTags.length;
       const sf = state.selectedFlavorTags.length;
-      dom.contentTagCount.textContent = sc || '0';
-      dom.flavorTagCount.textContent = sf || '0';
-      dom.contentTagTrigger.classList.toggle('active', sc > 0);
-      dom.flavorTagTrigger.classList.toggle('active', sf > 0);
+      const selectedCount = sc + sf;
+      dom.filterCount.textContent = selectedCount || '0';
+      dom.filterTrigger.classList.toggle('active', selectedCount > 0);
     }
 
     function renderActiveFilters() {
@@ -1978,8 +2043,7 @@
       dom.searchInput.focus();
     });
 
-    dom.contentTagTrigger.addEventListener('click', openTagModal);
-    dom.flavorTagTrigger.addEventListener('click', openTagModal);
+    dom.filterTrigger.addEventListener('click', openTagModal);
     dom.tagModalClose.addEventListener('click', () => closeTagModal(false));
     dom.tagModalClear.addEventListener('click', () => { state.pendingContentTags = []; state.pendingFlavorTags = []; renderTagModal(); });
     dom.tagModalApply.addEventListener('click', () => closeTagModal(true));
@@ -2063,6 +2127,13 @@
     const submitBody = document.getElementById('submitModalBody');
     let submitForm = null;
 
+    const subscribeBtn = document.getElementById('subscribeBtn');
+    const subscribeModal = document.getElementById('subscribeModal');
+    const subscribeClose = document.getElementById('subscribeModalClose');
+    const subscribeCancel = document.getElementById('subscribeCancel');
+    const subscribeSave = document.getElementById('subscribeSave');
+    const subscribeEmail = document.getElementById('subscribeEmail');
+
     function mountSubmitForm() {
       submitForm = window.ResourceForm.create({
         bodyEl: submitBody,
@@ -2109,6 +2180,64 @@
     submitBtn.addEventListener('click', openSubmitModal);
     submitClose.addEventListener('click', closeSubmitModal);
     submitCancel.addEventListener('click', closeSubmitModal);
+
+    function openSubscribeModal() {
+      subscribeModal.classList.add('visible');
+      document.body.style.overflow = 'hidden';
+      requestAnimationFrame(function () { subscribeEmail.focus(); });
+    }
+
+    function closeSubscribeModal() {
+      subscribeModal.classList.remove('visible');
+      document.body.style.overflow = '';
+      subscribeEmail.value = '';
+    }
+
+    async function saveSubscription() {
+      var email = subscribeEmail.value.trim();
+      if (!email || !subscribeEmail.checkValidity()) {
+        showToast('请输入有效的邮箱地址', 'error');
+        subscribeEmail.focus();
+        return;
+      }
+      subscribeSave.disabled = true;
+      try {
+        var res = await fetch(API_BASE + '/api/public/subscriptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ email: email })
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.error || '订阅失败');
+        closeSubscribeModal();
+        showToast(data.alreadySubscribed ? '该邮箱已订阅' : '订阅成功', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        subscribeSave.disabled = false;
+      }
+    }
+
+    subscribeBtn.addEventListener('click', openSubscribeModal);
+    subscribeClose.addEventListener('click', closeSubscribeModal);
+    subscribeCancel.addEventListener('click', closeSubscribeModal);
+    subscribeSave.addEventListener('click', saveSubscription);
+    subscribeEmail.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') saveSubscription();
+    });
+    subscribeModal.addEventListener('click', function (event) {
+      if (event.target === subscribeModal) closeSubscribeModal();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      if (subscribeModal.classList.contains('visible')) {
+        closeSubscribeModal();
+      } else if (submitOverlay.classList.contains('visible')) {
+        closeSubmitModal();
+      } else if (dom.tagModal.classList.contains('visible')) {
+        closeTagModal(false);
+      }
+    });
 
     // ── 提交流程 ──
     submitSave.addEventListener('click', async function () {
