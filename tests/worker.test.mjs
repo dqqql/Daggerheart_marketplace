@@ -35,6 +35,7 @@ test("homepage exposes one filter trigger and the notification subscription flow
   assert.match(html, /这个邮箱已经填写过了，无需重复订阅/);
   assert.match(html, /id="unsubscribeBtn"[^>]*>取消订阅<\/button>/);
   assert.match(html, /id="subscribeExistingClose"[^>]*>关闭<\/button>/);
+  assert.match(html, /#subscribeModal \[hidden\]\s*\{\s*display:\s*none\s*!important;/);
   assert.match(html, /method: 'DELETE'/);
 });
 
