@@ -1,0 +1,11 @@
+.content-tag-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.content-tag-choice { position: relative; display: inline-flex; cursor: pointer; }
+.content-tag-choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.content-tag-name { display: inline-block; padding: 8px 12px; border: 1px solid var(--border, #655638); border-radius: 4px; color: inherit; font-size: 13px; line-height: 1.5; }
+.content-tag-choice input:checked + .content-tag-name { background: var(--gold, #ddc078); color: #201b12; border-color: var(--gold, #ddc078); }
+.content-tag-choice input:focus-visible + .content-tag-name { outline: 2px solid var(--gold, #ddc078); outline-offset: 3px; }
+.content-tag-description { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5; width: 190px; max-width: 65vw; padding: 10px 12px; border: 1px solid #89734a; border-radius: 4px; background: #211d17; color: #f2e6cb; font-size: 12px; line-height: 1.6; font-weight: normal; box-shadow: 0 4px 16px #0004; }
+.content-tag-choice:hover .content-tag-description,
+.content-tag-choice:focus-within .content-tag-description { display: block; }
+.public-tag-description { position: fixed; z-index: 10000; width: max-content; max-width: min(260px, calc(100vw - 16px)); box-sizing: border-box; padding: 10px 12px; border: 1px solid #89734a; border-radius: 4px; background: #211d17; color: #f2e6cb; font-size: 12px; line-height: 1.6; pointer-events: none; box-shadow: 0 4px 16px #0004; }
+.public-tag-description[hidden] { display: none; }

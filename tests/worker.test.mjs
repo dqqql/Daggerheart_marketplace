@@ -4,6 +4,57 @@ import test from "node:test";
 
 import worker, { __test } from "../frontend/_worker.js";
 
+test("legacy content tags merge, deduplicate and drop non-content labels on reads", () => {
+  const row = {
+    content_tags: JSON.stringify(['种族', '转变卡', '传承', '碎心者工具集', '工具书', '单人游玩', '扩展规则', '武侠', 'TTTRI', '地点设定']),
+    flavor_tags: JSON.stringify(['武侠', 'TTTRI']),
+  };
+  for (const convert of [__test.rowToEntry, __test.rowToSubmission]) {
+    const entry = convert(row);
+    assert.deepEqual(entry.contentTags, ['传承', '工具书', '扩展规则', '设定']);
+    assert.deepEqual(entry.flavorTags, ['武侠', 'TTTRI']);
+    assert.deepEqual(globalThis.ContentTags.canonicalize(entry.contentTags), entry.contentTags);
+  }
+});
+
+test("entry and submission writes require standard content tags and preserve free flavor tags", () => {
+  for (const normalize of [__test.normalizeEntry, __test.normalizeSubmission]) {
+    const payload = { title: '资源', targetUrl: 'https://example.com', feedbackEmail: 'a@example.com', flavorTags: ['自定义风味'] };
+    const options = { existingIds: new Set() };
+    for (const invalid of ['种族', '转变卡', '碎心者工具集', '单人游玩', '武侠', '随意内容标签', '地点设定']) {
+      assert.throws(() => normalize({ ...payload, contentTags: [invalid] }, options), /请选择标准内容标签/);
+    }
+    assert.throws(() => normalize({ ...payload, contentTags: '模组' }, options), /array/);
+    const tags = globalThis.ContentTags.definitions.map(item => item.tag);
+    const entry = normalize({ ...payload, contentTags: [...tags, ' 传承 '] }, options);
+    assert.deepEqual(entry.contentTags, tags);
+    assert.deepEqual(entry.flavorTags, ['自定义风味']);
+    assert.deepEqual(normalize(payload, options).contentTags, []);
+  }
+});
+
+test("PbDH membership includes overlapping modules and flavor-tagged entries", () => {
+  const entries = [
+    { id: 'module', contentTags: ['模组', 'PbDH'] },
+    { id: 'flavor', contentTags: ['电子工具'], flavorTags: ['PbDH'] },
+    { id: 'other', contentTags: ['电子工具'] },
+    { id: 'empty' },
+  ];
+  assert.deepEqual(entries.filter(globalThis.ContentTags.isPbDH).map(entry => entry.id), ['module', 'flavor']);
+});
+
+test("bootstrap counts canonical tags for legacy data without rewriting the DB", async () => {
+  const env = { DB: { prepare() { return { async all() { return { results: [
+    { id: 'a', content_tags: '["转变卡","种族","传承","新人友好"]', flavor_tags: '["武侠"]' },
+    { id: 'b', content_tags: '["碎心者工具集"]', flavor_tags: '[]' }
+  ] }; } }; } } };
+  const response = await worker.fetch(new Request('https://dhvault.top/api/public/bootstrap'), env, { waitUntil() {} });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.deepEqual(data.entries.map(entry => entry.contentTags), [['传承'], ['工具书']]);
+  assert.deepEqual(new Map(data.tags.contentTags.map(item => [item.tag, item.count])), new Map([['传承', 1], ['工具书', 1]]));
+});
+
 test("admin review control declares distinct states, confirmation, and right-click undo", async () => {
   const html = await readFile(new URL("../frontend/admin/index.html", import.meta.url), "utf8");
 

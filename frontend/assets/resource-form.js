@@ -346,12 +346,16 @@
           + '</div>'
         : '')
       + '<div class="form-group full">'
-      + '<span class="form-label">内容标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>'
-      + '<div class="chip-input-wrap" data-field="contentTags">'
-      + values.contentTags.map(function (tag) {
-          return '<span class="chip" data-tag="' + escAttr(tag) + '">' + escHtml(tag) + '<button class="chip-remove" type="button">&times;</button></span>';
+      + '<span class="form-label" id="content-tags-label">内容标签 <span class="form-hint">— 可多选，悬停查看介绍</span></span>'
+      + '<div class="content-tag-options" data-field="contentTags" role="group" aria-labelledby="content-tags-label">'
+      + window.ContentTags.definitions.map(function (item, index) {
+          var tag = item.tag;
+          var descriptionId = 'content-tag-description-' + index;
+          return '<label class="content-tag-choice">'
+            + '<input type="checkbox" value="' + escAttr(tag) + '" aria-label="' + escAttr(tag) + '" aria-describedby="' + descriptionId + '"' + (values.contentTags.includes(tag) ? ' checked' : '') + '>'
+            + '<span class="content-tag-name">' + escHtml(tag) + '</span>'
+            + '<span class="content-tag-description" role="tooltip" id="' + descriptionId + '">' + escHtml(item.description) + '</span></label>';
         }).join('')
-      + '<input class="chip-input" placeholder="输入标签…">'
       + '</div></div>'
       + '<div class="form-group full">'
       + '<span class="form-label">风味标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>'
@@ -381,7 +385,7 @@
     var values = {
       title: initialValues.title || '',
       author: initialValues.author || '',
-      contentTags: Array.isArray(initialValues.contentTags) ? initialValues.contentTags.slice() : [],
+      contentTags: window.ContentTags.canonicalize(initialValues.contentTags),
       flavorTags: Array.isArray(initialValues.flavorTags) ? initialValues.flavorTags.slice() : [],
       recommendValue: initialValues.recommendValue || 0,
       summary: initialValues.summary || '',
@@ -414,14 +418,13 @@
       escAttr: escAttr
     });
 
-    bindChipInput(contentWrap);
     bindChipInput(flavorWrap);
 
     function collect() {
       var payload = {
         title: titleInput.value.trim(),
         author: authorInput.value.trim(),
-        contentTags: getChipValues(contentWrap),
+        contentTags: Array.from(contentWrap.querySelectorAll('input:checked')).map(function (input) { return input.value; }),
         flavorTags: getChipValues(flavorWrap),
         summary: summaryInput.value.trim(),
         targetUrl: targetInput.value.trim(),

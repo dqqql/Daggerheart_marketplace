@@ -1,3 +1,5 @@
+import "./assets/content-tags.js";
+
 const COVER_URL_PREFIX = "/the-great-vault/covers";
 const PENDING_COVER_URL_PREFIX = "/the-great-vault/covers/pending";
 const SESSION_COOKIE_NAME = "dh_market_admin";
@@ -367,7 +369,7 @@ function rowToEntry(row, likedBy = [], options = {}) {
     id: row.id,
     title: row.title,
     author: row.author || "",
-    contentTags: parseJsonArray(row.content_tags),
+    contentTags: globalThis.ContentTags.canonicalize(parseJsonArray(row.content_tags)),
     flavorTags: parseJsonArray(row.flavor_tags),
     recommendValue: Number(row.recommend_value || 0),
     likeCount,
@@ -733,7 +735,7 @@ function rowToSubmission(row) {
     id: row.id,
     title: row.title,
     author: row.author || "",
-    contentTags: parseJsonArray(row.content_tags),
+    contentTags: globalThis.ContentTags.canonicalize(parseJsonArray(row.content_tags)),
     flavorTags: parseJsonArray(row.flavor_tags),
     recommendValue: Number(row.recommend_value || 0),
     summary: row.summary || "",
@@ -1226,7 +1228,7 @@ function normalizeEntry(payload, options) {
   const current = options.currentEntry;
   const title = normalizeRequiredText(payload.title, "title");
   const author = normalizeOptionalText(payload.author);
-  const contentTags = normalizeTags(payload.contentTags);
+  const contentTags = normalizeContentTags(payload.contentTags);
   const flavorTags = normalizeTags(payload.flavorTags);
   const recommendValue = normalizeRecommendValue(payload.recommendValue);
   const summary = normalizeOptionalText(payload.summary);
@@ -1275,7 +1277,7 @@ function normalizeSubmission(payload, options) {
   const current = options.currentSubmission;
   const title = normalizeRequiredText(payload.title, "title");
   const author = normalizeOptionalText(payload.author);
-  const contentTags = normalizeTags(payload.contentTags);
+  const contentTags = normalizeContentTags(payload.contentTags);
   const flavorTags = normalizeTags(payload.flavorTags);
   const recommendValue = 0;
   const summary = normalizeOptionalText(payload.summary);
@@ -1329,6 +1331,13 @@ function normalizeRequiredText(value, fieldName) {
 function normalizeOptionalText(value) {
   if (value === null || value === undefined) return "";
   return String(value).replace(/[ \t]+/g, " ").trim();
+}
+
+function normalizeContentTags(value) {
+  const tags = normalizeTags(value);
+  const invalid = tags.filter((tag) => !globalThis.ContentTags.isStandard(tag));
+  if (invalid.length) throw new ValidationError(`请选择标准内容标签：${invalid.join('、')}`);
+  return tags;
 }
 
 function normalizeTags(value) {
