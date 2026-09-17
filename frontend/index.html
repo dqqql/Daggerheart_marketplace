@@ -1474,6 +1474,7 @@
           <span class="tag-trigger-count" id="filterCount">0</span>
           <span class="tag-trigger-caret">&#9660;</span>
         </button>
+        <button class="tag-trigger" id="sortToggle" type="button" aria-label="当前按最新排序，点击切换为最热" title="最新：更新时间；最热：点赞 + 推荐 × 10">排序：最新</button>
         <button class="theme-toggle" id="themeToggle" aria-label="切换亮色/暗色主题" title="切换主题">
           &#9788;
         </button>
@@ -1589,6 +1590,10 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
+  <link rel="stylesheet" href="/assets/content-tags.css">
+  <script src="/assets/content-tags.js"></script>
+  <script src="/assets/catalog-order.js"></script>
+  <script src="/assets/tag-tooltips.js"></script>
   <script src="/assets/resource-form.js"></script>
   <script>
   (function () {
@@ -1606,13 +1611,10 @@
       POPULAR_PICK_COUNT: 4,
       POPULAR_LIKE_THRESHOLD: 5,  // 大众点评最低点赞数
 
-      // 排序权重
-      RECOMMEND_WEIGHT: 10,
-
       // 分区标签映射
       MODULE_TAGS: ['模组', '遭遇'], // 模组资源
       PLAYER_RESOURCE_TAGS: ['职业', '领域', '传承', '装备物品'], // 玩家资源
-      GM_RESOURCE_TAGS: ['敌人', '环境', '转变卡', '地点设定'], // GM资源
+      GM_RESOURCE_TAGS: ['敌人', '环境', '遭遇', '设定', '电子工具', '工具书'], // GM资源
       EXT_RULE_TAGS: ['扩展规则'], // 扩展规则
       CAMPAIGN_FRAMEWORK_TAGS: ['战役框架'], // 战役框架
     };
@@ -1649,6 +1651,9 @@
       entries: [],
       tags: { contentTags: [], flavorTags: [] },
       searchQuery: '',
+      sortMode: 'latest',
+      rotationDay: window.CatalogOrder.dayKey(),
+      dailyHighlights: null,
       selectedContentTags: [],
       selectedFlavorTags: [],
       pendingContentTags: [],
@@ -1801,7 +1806,7 @@
       state.selectedFlavorTags.forEach(t => chips.push({ type:'flavor', tag:t, label:t }));
 
       dom.activeFilters.innerHTML = chips.map(c =>
-        `<span class="active-filter-chip" data-type="${c.type}" data-tag="${escAttr(c.tag)}">
+        `<span class="active-filter-chip" data-type="${c.type}" data-tag="${escAttr(c.tag)}" data-tag-description="${escAttr(window.ContentTags.description(c.tag))}">
           ${escHtml(c.label)} <span class="active-filter-chip-remove">&times;</span>
         </span>`
       ).join('');
@@ -1810,7 +1815,7 @@
     function renderCard(entry, idx, prioritizeImage = false) {
       const hasSummary = !!(entry.summary && entry.summary.trim());
       const isRec = entry.recommendValue > 0;
-      const cTags = entry.contentTags || [];
+      const cTags = window.CatalogOrder.tags(entry.contentTags || []);
       const fTags = entry.flavorTags || [];
       const liked = state.likedEntries.includes(entry.id);
       const likeCount = entry.likeCount || 0;
@@ -1850,8 +1855,8 @@
               </div>
             </div>
             <div class="card-tags">
-              ${cTags.map(t=>`<span class="card-tag card-tag--content">${escHtml(t)}</span>`).join('')}
-              ${fTags.map(t=>`<span class="card-tag card-tag--flavor">${escHtml(t)}</span>`).join('')}
+              ${cTags.map(t=>`<span class="card-tag card-tag--content" tabindex="0" data-tag-description="${escAttr(window.ContentTags.description(t))}">${escHtml(t)}</span>`).join('')}
+              ${fTags.map(t=>`<span class="card-tag card-tag--flavor" tabindex="0" data-tag-description="${escAttr(window.ContentTags.description(t))}">${escHtml(t)}</span>`).join('')}
             </div>
           </div>
         </div>`;
@@ -1868,7 +1873,7 @@
     }
 
     function renderCardGrid() {
-      const filtered = getFilteredEntries();
+      const filtered = window.CatalogOrder.entries(getFilteredEntries(), state.sortMode);
       const hasActiveFilter = state.searchQuery.trim() || state.selectedContentTags.length || state.selectedFlavorTags.length;
       const priorityImageCount = getPriorityImageCount();
 
@@ -1897,52 +1902,28 @@
         dom.cardGrid.innerHTML = filtered.map((entry, idx) => renderCard(entry, idx, idx < priorityImageCount)).join('');
       } else {
         dom.cardGrid.classList.remove('card-grid--centered');
-        const sorted = [...state.entries].sort((a, b) => (b.updatedAt||'').localeCompare(a.updatedAt||''));
+        const sorted = window.CatalogOrder.entries(state.entries, 'latest');
         const latest = sorted.slice(0, CONFIG.LATEST_COUNT);
-        const byScore = (arr) => [...arr].sort((a, b) => {
-          const sa = (a.recommendValue||0) * CONFIG.RECOMMEND_WEIGHT + (a.likeCount||0);
-          const sb = (b.recommendValue||0) * CONFIG.RECOMMEND_WEIGHT + (b.likeCount||0);
-          if (sb !== sa) return sb - sa;
-          return (b.updatedAt||'').localeCompare(a.updatedAt||'');
-        });
+        const bySelectedOrder = (arr) => window.CatalogOrder.entries(arr, state.sortMode);
         const campaignTags = CONFIG.CAMPAIGN_FRAMEWORK_TAGS;
-        const campaign = byScore(state.entries.filter(e => campaignTags.some(t => hasTag(e, t))));
+        const campaign = bySelectedOrder(state.entries.filter(e => campaignTags.some(t => hasTag(e, t))));
         const moduleTags = CONFIG.MODULE_TAGS;
-        const module = byScore(state.entries.filter(e => moduleTags.some(t => hasTag(e, t))));
+        const module = bySelectedOrder(state.entries.filter(e => moduleTags.some(t => hasTag(e, t))));
         const campaignOrModule = new Set([...campaign.map(e => e.id), ...module.map(e => e.id)]);
         const playerResourceTags = CONFIG.PLAYER_RESOURCE_TAGS;
-        const playerResource = byScore(state.entries.filter(e =>
+        const playerResource = bySelectedOrder(state.entries.filter(e =>
           !campaignOrModule.has(e.id) && playerResourceTags.some(t => hasTag(e, t))));
         const gmResourceTags = CONFIG.GM_RESOURCE_TAGS;
-        const gmResource = byScore(state.entries.filter(e =>
+        const gmResource = bySelectedOrder(state.entries.filter(e =>
           !campaignOrModule.has(e.id) && gmResourceTags.some(t => hasTag(e, t))));
         const extRuleTags = CONFIG.EXT_RULE_TAGS;
-        const extRule = byScore(state.entries.filter(e => extRuleTags.some(t => hasTag(e, t))));
-        const allSpecialTags = [...campaignTags,...moduleTags,...playerResourceTags,...gmResourceTags,...extRuleTags];
-        const tagged = new Set([
-          ...campaign, ...module, ...playerResource, ...gmResource, ...extRule
-        ].map(e => e.id));
-        const other = byScore(state.entries.filter(e => !tagged.has(e.id)));
+        const extRule = bySelectedOrder(state.entries.filter(e => extRuleTags.some(t => hasTag(e, t))));
+        const pbdh = bySelectedOrder(state.entries.filter(window.ContentTags.isPbDH));
 
-        const editorPick = [...state.entries]
-          .filter(e => e.recommendValue > 0)
-          .sort((a, b) => {
-            const rv = (b.recommendValue||0) - (a.recommendValue||0);
-            if (rv !== 0) return rv;
-            return (b.updatedAt||'').localeCompare(a.updatedAt||'');
-          })
-          .slice(0, CONFIG.EDITOR_PICK_COUNT);
-
-        const editorPickIds = new Set(editorPick.map(e => e.id));
-
-        const popularPick = [...state.entries]
-          .filter(e => !editorPickIds.has(e.id) && (e.likeCount||0) >= CONFIG.POPULAR_LIKE_THRESHOLD)
-          .sort((a, b) => {
-            const lc = (b.likeCount||0) - (a.likeCount||0);
-            if (lc !== 0) return lc;
-            return (b.updatedAt||'').localeCompare(a.updatedAt||'');
-          })
-          .slice(0, CONFIG.POPULAR_PICK_COUNT);
+        if (!state.dailyHighlights) state.dailyHighlights = window.CatalogOrder.highlights(state.entries, state.rotationDay, CONFIG);
+        const picks = state.dailyHighlights;
+        const editorPick = picks.editor;
+        const popularPick = picks.popular;
 
         const sections = [
           { id: 'sec-latest', label: '最新收录', short: '最新', entries: latest },
@@ -1953,13 +1934,16 @@
           { id: 'sec-gm', label: 'GM资源', short: 'GM', entries: gmResource },
           { id: 'sec-extrule', label: '扩展规则', short: '房规', entries: extRule },
           { id: 'sec-campaign', label: '战役框架', short: '战框', entries: campaign },
-          { id: 'sec-other', label: '其他资源', short: '其他', entries: other },
+          { id: 'sec-pbdh', label: 'PbDH专区', short: 'PbDH', entries: pbdh },
         ];
 
         let gridHtml = '', navHtml = '';
         for (const s of sections) {
           if (!s.entries.length) continue;
           gridHtml += `<div class="section-header" id="${s.id}">${s.label} · ${s.entries.length}</div>`;
+          if (s.id === 'sec-pbdh') {
+            gridHtml += '<p class="section-description">PBDH是“Powered by Daggerheart”的缩写，可以理解为“以《匕首心》为驱动引擎”。它表示创作者从《匕首心》提供的设计语言和基础机制出发，对它进行重新取舍、组合、改造，最终创作了出一款新的游戏。详情请见<a href="https://vcn3zvu2w61p.feishu.cn/wiki/FOziwMdb6iFF4nkU4fkc5jsjnKg#share-RMZkdlaJEo64laxY2m6cvQcunBg" target="_blank" rel="noopener noreferrer">贤者恩泽</a>。</p>';
+          }
           gridHtml += s.entries.map((e, i) => renderCard(e, i,
             s.id === 'sec-latest' && i < priorityImageCount)).join('');
           navHtml += `<a href="#${s.id}" class="section-nav-link"><span class="nav-label-full">${s.label}</span><span class="nav-label-short">${s.short}</span></a>`;
@@ -1973,12 +1957,12 @@
     }
 
     function renderTagModal() {
-      const cTags = state.tags.contentTags || [];
+      const cTags = window.CatalogOrder.tags(state.tags.contentTags || [], item => item.tag);
       dom.modalContentTags.innerHTML = cTags.length === 0
         ? '<div class="modal-tag-empty">暂无内容标签</div>'
         : cTags.map(tc => {
             const sel = state.pendingContentTags.includes(tc.tag);
-            return `<div class="modal-tag-item ${sel?'selected':''}" data-type="content" data-tag="${escAttr(tc.tag)}">
+            return `<div class="modal-tag-item ${sel?'selected':''}" data-type="content" data-tag="${escAttr(tc.tag)}" data-tag-description="${escAttr(window.ContentTags.description(tc.tag))}">
               <span>${escHtml(tc.tag)}</span><span class="modal-tag-count">${tc.count}</span></div>`;
           }).join('');
 
@@ -1987,7 +1971,7 @@
         ? '<div class="modal-tag-empty">暂无风味标签</div>'
         : fTags.map(tc => {
             const sel = state.pendingFlavorTags.includes(tc.tag);
-            return `<div class="modal-tag-item ${sel?'selected':''}" data-type="flavor" data-tag="${escAttr(tc.tag)}">
+            return `<div class="modal-tag-item ${sel?'selected':''}" data-type="flavor" data-tag="${escAttr(tc.tag)}" data-tag-description="${escAttr(window.ContentTags.description(tc.tag))}">
               <span>${escHtml(tc.tag)}</span><span class="modal-tag-count">${tc.count}</span></div>`;
           }).join('');
 
@@ -2077,6 +2061,22 @@
       dom.searchInput.focus();
     });
 
+    document.getElementById('sortToggle').addEventListener('click', function () {
+      state.sortMode = state.sortMode === 'latest' ? 'hot' : 'latest';
+      this.textContent = state.sortMode === 'latest' ? '排序：最新' : '排序：最热';
+      this.setAttribute('aria-label', state.sortMode === 'latest' ? '当前按最新排序，点击切换为最热' : '当前按最热排序，点击切换为最新');
+      renderCardGrid();
+    });
+    function rotateIfNeeded() {
+      const day = window.CatalogOrder.dayKey();
+      if (day !== state.rotationDay) {
+        state.rotationDay = day;
+        state.dailyHighlights = null;
+        if (!state.loading) renderCardGrid();
+      }
+    }
+    setInterval(rotateIfNeeded, 30000);
+    document.addEventListener('visibilitychange', rotateIfNeeded);
     dom.filterTrigger.addEventListener('click', openTagModal);
     dom.tagModalClose.addEventListener('click', () => closeTagModal(false));
     dom.tagModalClear.addEventListener('click', () => { state.pendingContentTags = []; state.pendingFlavorTags = []; renderTagModal(); });
@@ -2181,6 +2181,7 @@
         bodyEl: submitBody,
         showRecommendValue: false,
         showFeedbackEmail: true,
+        getFlavorSuggestions: function () { return state.tags.flavorTags || []; },
         initialValues: {
           title: '',
           author: '',

@@ -249,11 +249,90 @@
     };
   }
 
-  function bindChipInput(wrap) {
+  function bindChipInput(wrap, getSuggestions) {
     if (!wrap || wrap.dataset.bound === '1') return;
     wrap.dataset.bound = '1';
     var input = wrap.querySelector('.chip-input');
     if (!input) return;
+    var suggestions = null;
+    var matches = [];
+    var activeIndex = -1;
+    var composing = false;
+    if (getSuggestions) {
+      wrap.classList.add('chip-input-wrap--suggestions');
+      suggestions = document.createElement('div');
+      suggestions.className = 'tag-suggestions';
+      suggestions.id = 'flavor-tag-suggestions';
+      suggestions.setAttribute('role', 'listbox');
+      suggestions.setAttribute('aria-label', '已有风味标签');
+      suggestions.hidden = true;
+      wrap.appendChild(suggestions);
+      var hint = wrap.parentElement.querySelector('.form-hint');
+      if (hint) hint.textContent = '— 搜索已有标签，或输入新标签后按 Enter';
+      input.placeholder = '搜索已有标签，也可输入新标签…';
+      input.setAttribute('aria-label', '搜索或添加风味标签');
+      input.setAttribute('role', 'combobox');
+      input.setAttribute('aria-autocomplete', 'list');
+      input.setAttribute('aria-controls', suggestions.id);
+      input.setAttribute('aria-expanded', 'false');
+      input.setAttribute('autocomplete', 'off');
+    }
+
+    function closeSuggestions() {
+      if (!suggestions) return;
+      suggestions.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+      activeIndex = -1;
+    }
+
+    function renderSuggestions() {
+      if (!suggestions || composing) return;
+      var query = input.value.trim().toLowerCase();
+      var selected = getValues();
+      matches = getSuggestions().filter(function (item) {
+        return !selected.includes(item.tag) && item.tag.toLowerCase().includes(query);
+      }).sort(function (a, b) {
+        var aPrefix = a.tag.toLowerCase().startsWith(query) ? 1 : 0;
+        var bPrefix = b.tag.toLowerCase().startsWith(query) ? 1 : 0;
+        return bPrefix - aPrefix || b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN');
+      }).slice(0, 8);
+      activeIndex = -1;
+      input.removeAttribute('aria-activedescendant');
+      suggestions.innerHTML = matches.map(function (item, index) {
+        return '<div role="option" aria-selected="false" id="flavor-tag-option-' + index + '" data-index="' + index + '">'
+          + '<span>' + defaultEscapeHtml(item.tag) + '</span><span class="tag-suggestion-count">' + Number(item.count || 0) + ' 条资源</span></div>';
+      }).join('') + '<div class="tag-suggestion-hint">' + (matches.length ? '↑↓ 选择，Enter 添加；也可直接输入新标签' : '没有匹配标签，按 Enter 添加为新标签') + '</div>';
+      suggestions.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    function addTag(value) {
+      value = value.trim();
+      if (value && !getValues().includes(value)) {
+        var chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.dataset.tag = value;
+        chip.innerHTML = defaultEscapeHtml(value) + '<button class="chip-remove" type="button" aria-label="移除 ' + defaultEscapeAttr(value) + '">&times;</button>';
+        attachRemove(chip);
+        wrap.insertBefore(chip, input);
+      }
+      input.value = '';
+      closeSuggestions();
+    }
+
+    if (suggestions) {
+      input.addEventListener('focus', renderSuggestions);
+      input.addEventListener('input', renderSuggestions);
+      input.addEventListener('blur', closeSuggestions);
+      input.addEventListener('compositionstart', function () { composing = true; closeSuggestions(); });
+      input.addEventListener('compositionend', function () { composing = false; renderSuggestions(); });
+      suggestions.addEventListener('mousedown', function (evt) { evt.preventDefault(); });
+      suggestions.addEventListener('click', function (evt) {
+        var option = evt.target.closest('[data-index]');
+        if (option) { addTag(matches[Number(option.dataset.index)].tag); input.focus(); }
+      });
+    }
 
     function getValues() {
       return Array.from(wrap.querySelectorAll('.chip')).map(function (chip) {
@@ -273,20 +352,23 @@
     wrap.querySelectorAll('.chip').forEach(attachRemove);
 
     input.addEventListener('keydown', function (evt) {
+      if (evt.isComposing || composing || evt.keyCode === 229) return;
+      if (suggestions && (evt.key === 'ArrowDown' || evt.key === 'ArrowUp')) {
+        evt.preventDefault();
+        if (suggestions.hidden) renderSuggestions();
+        if (!matches.length) return;
+        activeIndex = (activeIndex + (evt.key === 'ArrowDown' ? 1 : (activeIndex < 0 ? 0 : -1)) + matches.length) % matches.length;
+        suggestions.querySelectorAll('[role="option"]').forEach(function (option, index) {
+          option.setAttribute('aria-selected', String(index === activeIndex));
+          if (index === activeIndex) option.scrollIntoView({ block: 'nearest' });
+        });
+        input.setAttribute('aria-activedescendant', 'flavor-tag-option-' + activeIndex);
+        return;
+      }
+      if (suggestions && evt.key === 'Escape') { evt.stopPropagation(); closeSuggestions(); return; }
       if (evt.key === 'Enter' || evt.key === ',') {
         evt.preventDefault();
-        var value = input.value.trim();
-        if (!value || getValues().includes(value)) {
-          input.value = '';
-          return;
-        }
-        var chip = document.createElement('span');
-        chip.className = 'chip';
-        chip.dataset.tag = value;
-        chip.innerHTML = defaultEscapeHtml(value) + '<button class="chip-remove" type="button">&times;</button>';
-        attachRemove(chip);
-        wrap.insertBefore(chip, input);
-        input.value = '';
+        addTag(suggestions && !suggestions.hidden && activeIndex >= 0 ? matches[activeIndex].tag : input.value);
       }
       if (evt.key === 'Backspace' && input.value === '') {
         var chips = wrap.querySelectorAll('.chip');
@@ -346,12 +428,16 @@
           + '</div>'
         : '')
       + '<div class="form-group full">'
-      + '<span class="form-label">内容标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>'
-      + '<div class="chip-input-wrap" data-field="contentTags">'
-      + values.contentTags.map(function (tag) {
-          return '<span class="chip" data-tag="' + escAttr(tag) + '">' + escHtml(tag) + '<button class="chip-remove" type="button">&times;</button></span>';
+      + '<span class="form-label" id="content-tags-label">内容标签 <span class="form-hint">— 可多选，悬停查看介绍</span></span>'
+      + '<div class="content-tag-options" data-field="contentTags" role="group" aria-labelledby="content-tags-label">'
+      + window.ContentTags.definitions.map(function (item, index) {
+          var tag = item.tag;
+          var descriptionId = 'content-tag-description-' + index;
+          return '<label class="content-tag-choice">'
+            + '<input type="checkbox" value="' + escAttr(tag) + '" aria-label="' + escAttr(tag) + '" aria-describedby="' + descriptionId + '"' + (values.contentTags.includes(tag) ? ' checked' : '') + '>'
+            + '<span class="content-tag-name">' + escHtml(tag) + '</span>'
+            + '<span class="content-tag-description" role="tooltip" id="' + descriptionId + '">' + escHtml(item.description) + '</span></label>';
         }).join('')
-      + '<input class="chip-input" placeholder="输入标签…">'
       + '</div></div>'
       + '<div class="form-group full">'
       + '<span class="form-label">风味标签 <span class="form-hint">— 输入标签后按Enter添加</span></span>'
@@ -381,8 +467,8 @@
     var values = {
       title: initialValues.title || '',
       author: initialValues.author || '',
-      contentTags: Array.isArray(initialValues.contentTags) ? initialValues.contentTags.slice() : [],
-      flavorTags: Array.isArray(initialValues.flavorTags) ? initialValues.flavorTags.slice() : [],
+      contentTags: window.ContentTags.canonicalize(initialValues.contentTags),
+      flavorTags: window.ContentTags.migrateFlavor(initialValues.contentTags, initialValues.flavorTags),
       recommendValue: initialValues.recommendValue || 0,
       summary: initialValues.summary || '',
       targetUrl: initialValues.targetUrl || '',
@@ -414,14 +500,13 @@
       escAttr: escAttr
     });
 
-    bindChipInput(contentWrap);
-    bindChipInput(flavorWrap);
+    bindChipInput(flavorWrap, options.getFlavorSuggestions);
 
     function collect() {
       var payload = {
         title: titleInput.value.trim(),
         author: authorInput.value.trim(),
-        contentTags: getChipValues(contentWrap),
+        contentTags: Array.from(contentWrap.querySelectorAll('input:checked')).map(function (input) { return input.value; }),
         flavorTags: getChipValues(flavorWrap),
         summary: summaryInput.value.trim(),
         targetUrl: targetInput.value.trim(),
@@ -453,6 +538,7 @@
         uploadCover: options.uploadCover,
         showRecommendValue: options.showRecommendValue,
         showFeedbackEmail: options.showFeedbackEmail,
+        getFlavorSuggestions: options.getFlavorSuggestions,
         initialValues: merged,
         escHtml: escHtml,
         escAttr: escAttr

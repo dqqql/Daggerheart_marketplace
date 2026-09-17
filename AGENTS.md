@@ -91,7 +91,7 @@
 
 | 项 | 值 |
 |---|---|
-| 仓库 | `ZZZZzzzzac/Daggerheart_marketplace` |
+| 仓库 | `dqqql/Daggerheart_marketplace` |
 | Pages 项目 | `the-great-vault` |
 | 生产分支 | `master` |
 | 生产域名 | `https://dhvault.top` |
@@ -123,7 +123,9 @@
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`ZZZZzzzzac/Daggerheart_marketplace`). See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`dqqql/Daggerheart_marketplace`). See `docs/agents/issue-tracker.md`.
+
+推送和 PR 的目标均为 `dqqql/Daggerheart_marketplace`。遇到权限不足时先说明阻碍，不得自行切换到上游或其他仓库。
 
 ### Triage labels
 
