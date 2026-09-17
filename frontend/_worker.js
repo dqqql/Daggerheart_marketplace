@@ -79,7 +79,10 @@ async function handleApi(request, env, ctx, path) {
     return json({ ok: true });
   }
 
-  if (method === "GET" && path === "/api/public/entries") {
+  if (path === "/api/public/entries") {
+    if (method !== "GET") {
+      return json({ error: "method not allowed" }, 405, { allow: "GET" });
+    }
     return cachedPublicJson(request, ctx, async () => ({
       entries: publicEntriesOnly(await loadPublicEntries(env)),
     }));
@@ -384,10 +387,20 @@ function rowToEntry(row, likedBy = [], options = {}) {
 }
 
 function publicEntryOnly(entry) {
-  const cleaned = { ...entry };
-  delete cleaned.feedbackEmail;
-  delete cleaned.likedBy;
-  return cleaned;
+  return {
+    id: entry.id || "",
+    title: entry.title || "",
+    author: entry.author || "",
+    contentTags: Array.isArray(entry.contentTags) ? entry.contentTags : [],
+    flavorTags: Array.isArray(entry.flavorTags) ? entry.flavorTags : [],
+    recommendValue: Number(entry.recommendValue || 0),
+    likeCount: Number(entry.likeCount || 0),
+    summary: entry.summary || "",
+    coverPath: entry.coverPath || "",
+    targetUrl: entry.targetUrl || "",
+    createdAt: entry.createdAt || "",
+    updatedAt: entry.updatedAt || "",
+  };
 }
 
 function publicEntriesOnly(entries) {

@@ -404,6 +404,84 @@ test("public bootstrap route returns cacheable non-personalized entries", async 
   assert.deepEqual(data.tags.contentTags, [{ tag: "模组", count: 1 }]);
 });
 
+test("public entries route uses the published catalog schema and only allows GET", async () => {
+  const env = {
+    DB: {
+      prepare() {
+        return {
+          async all() {
+            return {
+              results: [
+                {
+                  id: "dhm_public",
+                  title: "公开资源",
+                  author: "作者",
+                  content_tags: "not-json",
+                  flavor_tags: JSON.stringify(["西幻"]),
+                  recommend_value: 2,
+                  like_count: 4,
+                  summary: "公开简介",
+                  cover_path: "/the-great-vault/covers/public.webp",
+                  target_url: "https://example.com/public",
+                  feedback_email: "creator@example.com",
+                  created_at: "2026-01-01T00:00:00+00:00",
+                  updated_at: "2026-01-02T00:00:00+00:00",
+                },
+              ],
+            };
+          },
+        };
+      },
+    },
+  };
+
+  const response = await worker.fetch(
+    new Request("https://dhvault.top/api/public/entries"),
+    env,
+    { waitUntil() {} }
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
+  assert.equal(response.headers.get("cache-control"), "public, max-age=60, stale-while-revalidate=300");
+  assert.ok(Array.isArray(data.entries));
+  assert.deepEqual(Object.keys(data.entries[0]), [
+    "id",
+    "title",
+    "author",
+    "contentTags",
+    "flavorTags",
+    "recommendValue",
+    "likeCount",
+    "summary",
+    "coverPath",
+    "targetUrl",
+    "createdAt",
+    "updatedAt",
+  ]);
+  assert.deepEqual(data.entries[0].contentTags, []);
+  assert.deepEqual(data.entries[0].flavorTags, ["西幻"]);
+  assert.equal(Object.hasOwn(data.entries[0], "feedbackEmail"), false);
+  assert.equal(Object.hasOwn(data.entries[0], "likedBy"), false);
+  assert.equal(Object.hasOwn(data.entries[0], "reviewNote"), false);
+
+  const methodNotAllowed = await worker.fetch(
+    new Request("https://dhvault.top/api/public/entries", { method: "POST" }),
+    env,
+    { waitUntil() {} }
+  );
+  assert.equal(methodNotAllowed.status, 405);
+  assert.equal(methodNotAllowed.headers.get("allow"), "GET");
+
+  const unauthenticatedAdmin = await worker.fetch(
+    new Request("https://dhvault.top/api/admin/entries"),
+    env,
+    { waitUntil() {} }
+  );
+  assert.equal(unauthenticatedAdmin.status, 401);
+});
+
 test("sendRejectionNotice posts a Resend email when configured", async () => {
   const calls = [];
   const notification = await __test.sendRejectionNotice(
