@@ -3,6 +3,71 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import worker, { __test } from "../frontend/_worker.js";
+import '../frontend/assets/catalog-order.js';
+
+test('legacy discarded content moves to flavor, while aliases merge without duplication', () => {
+  const row = { content_tags: '["战役框架","新人友好","武侠","种族","转变卡","单人游玩"]', flavor_tags: '["武侠"]' };
+  for (const convert of [__test.rowToEntry, __test.rowToSubmission]) {
+    const entry = convert(row);
+    assert.deepEqual(entry.contentTags, ['战役框架', '传承', '扩展规则']);
+    assert.deepEqual(entry.flavorTags, ['武侠', '新人友好']);
+    assert.deepEqual(globalThis.ContentTags.migrateFlavor(entry.contentTags, entry.flavorTags), entry.flavorTags);
+  }
+});
+
+test('catalog order prioritizes tags without mutating the JSON arrays', () => {
+  const tags = ['敌人', '战役框架', '模组', '设定', 'PbDH', '传承'];
+  assert.deepEqual(globalThis.CatalogOrder.tags(tags), ['PbDH', '设定', '战役框架', '敌人', '模组', '传承']);
+  assert.deepEqual(tags, ['敌人', '战役框架', '模组', '设定', 'PbDH', '传承']);
+});
+
+test('catalog latest uses timestamps and hot uses likes plus recommendation times ten', () => {
+  const items = [
+    { id: 'a', updatedAt: '2026-09-17T10:00:00+08:00', likeCount: 2, recommendValue: 2 },
+    { id: 'b', updatedAt: '2026-09-17T03:00:00Z', likeCount: 21, recommendValue: 0 },
+    { id: 'c', updatedAt: '2026-09-17T12:00:00+08:00', likeCount: 1, recommendValue: 0 },
+  ];
+  const before = JSON.stringify(items);
+  assert.deepEqual(globalThis.CatalogOrder.entries(items, 'latest').map(e => e.id), ['c', 'b', 'a']);
+  assert.deepEqual(globalThis.CatalogOrder.entries(items, 'hot').map(e => e.id), ['a', 'b', 'c']);
+  assert.equal(JSON.stringify(items), before);
+});
+
+test('daily rotation uses Beijing midnight, stable candidates and independent section seeds', () => {
+  const order = globalThis.CatalogOrder;
+  assert.equal(order.dayKey('2026-09-17T15:59:59Z'), '2026-09-17');
+  assert.equal(order.dayKey('2026-09-17T16:00:00Z'), '2026-09-18');
+  const items = Array.from({ length: 40 }, (_, i) => ({ id: `dhm_${i}`, recommendValue: i < 20 ? 1 : 0, likeCount: 10 }));
+  const config = { EDITOR_PICK_COUNT: 8, POPULAR_PICK_COUNT: 4, POPULAR_LIKE_THRESHOLD: 5 };
+  const before = JSON.stringify(items);
+  const today = order.highlights(items, '2026-09-17', config);
+  assert.deepEqual(order.highlights(items.slice().reverse(), '2026-09-17', config), today);
+  assert.notDeepEqual(order.highlights(items, '2026-09-18', config), today);
+  assert.equal(today.editor.length, 8);
+  assert.equal(today.popular.length, 4);
+  assert.ok(today.editor.every(e => e.recommendValue > 0));
+  assert.ok(today.popular.every(e => e.likeCount >= 5 && !today.editor.some(x => x.id === e.id)));
+  const exposed = new Set();
+  for (let day = 1; day <= 28; day++) {
+    order.highlights(items, `2026-09-${String(day).padStart(2, '0')}`, config).editor.forEach(e => exposed.add(e.id));
+  }
+  assert.equal(exposed.size, 20);
+  assert.equal(JSON.stringify(items), before);
+});
+
+test('public JSON retains pre-change entry and tag schemas without ordering metadata', async () => {
+  const row = { id: 'dhm_schema', title: '资源', author: '作者', content_tags: '["地点设定"]', flavor_tags: '["西幻"]', recommend_value: 1, like_count: 2, summary: '', cover_path: '', target_url: 'https://example.com', created_at: '2026-09-17', updated_at: '2026-09-17' };
+  const env = { DB: { prepare() { return { async all() { return { results: [row] }; } }; } } };
+  const response = await worker.fetch(new Request('https://dhvault.top/api/public/bootstrap'), env, { waitUntil() {} });
+  const data = await response.json();
+  assert.deepEqual(Object.keys(data).sort(), ['entries', 'tags']);
+  assert.deepEqual(Object.keys(data.tags).sort(), ['contentTags', 'flavorTags']);
+  assert.deepEqual(Object.keys(data.entries[0]).sort(), ['id', 'title', 'author', 'contentTags', 'flavorTags', 'recommendValue', 'likeCount', 'summary', 'coverPath', 'targetUrl', 'createdAt', 'updatedAt'].sort());
+  assert.deepEqual(data.entries[0].contentTags, ['设定']);
+  assert.deepEqual(data.tags.contentTags, [{ tag: '设定', count: 1 }]);
+  assert.equal(typeof data.entries[0].recommendValue, 'number');
+  assert.equal(typeof data.entries[0].likeCount, 'number');
+});
 
 test("legacy content tags merge, deduplicate and drop non-content labels on reads", () => {
   const row = {

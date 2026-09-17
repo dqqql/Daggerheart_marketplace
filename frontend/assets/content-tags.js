@@ -35,6 +35,12 @@
     definitions: Object.freeze(definitions),
     isStandard: function (tag) { return allowed.has(tag); },
     canonicalize: canonicalize,
+    migrateFlavor: function (contentTags, flavorTags) {
+      var moved = (Array.isArray(contentTags) ? contentTags : []).map(function (tag) {
+        return String(tag || '').trim().replace(/\s+/g, ' ');
+      }).filter(function (tag) { return tag && !allowed.has(tag) && !aliases.has(tag); });
+      return Array.from(new Set((Array.isArray(flavorTags) ? flavorTags : []).concat(moved)));
+    },
     description: function (tag) {
       var definition = definitions.find(function (item) { return item.tag === tag; });
       return definition ? definition.description : '「' + tag + '」的标签介绍待补充。';
