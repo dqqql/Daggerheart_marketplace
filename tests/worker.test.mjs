@@ -24,7 +24,10 @@ function createLikeEnv(options = {}) {
               async first() {
                 if (sql.includes('FROM entries WHERE')) return state.entryExists ? { id: 'dhm_test' } : null;
                 if (sql.includes('SELECT 1 FROM entry_likes')) return state.current ? { 1: 1 } : null;
-                if (sql.includes('SELECT COUNT(*) AS count')) return { count: state.likeCount };
+                if (sql.includes('SELECT COUNT(*) AS count')) {
+                  if (options.countFails) throw new Error('like count unavailable');
+                  return { count: state.likeCount };
+                }
                 throw new Error(`unexpected first query: ${sql}`);
               },
               async all() {
@@ -170,6 +173,138 @@ test('unlike and no-change mutations capture their actual count deltas', async (
     assert.equal(state.audits[0].params[3], 'unlike');
     assert.equal(state.audits[0].params[4], expectedOutcome);
     assert.equal(state.audits[0].params[6], expectedDelta);
+  }
+});
+
+test('a count read failure preserves the known mutation delta in its failed audit event', async () => {
+  const { env, state } = createLikeEnv({ countFails: true });
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const originalError = console.error;
+  console.error = () => {};
+  let response;
+  try {
+    response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env, ctx
+    );
+  } finally {
+    console.error = originalError;
+  }
+  await settleBackground(ctx);
+
+  assert.equal(response.status, 500);
+  assert.equal(state.audits.length, 1);
+  assert.deepEqual(state.audits[0].params.slice(3, 7), [
+    'like', 'failed', 'like_count_failed', 1,
+  ]);
+});
+
+test('malformed like identifiers are audited, set a visitor credential, and never purge the directory cache', async () => {
+  const { env, state } = createLikeEnv();
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const originalCaches = globalThis.caches;
+  const originalError = console.error;
+  let purges = 0;
+  globalThis.caches = { default: { async delete() { purges += 1; } } };
+  console.error = () => {};
+  try {
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/%E0%A4%A', { method: 'POST' }), env, ctx
+    );
+    await settleBackground(ctx);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: 'internal server error' });
+    assert.match(response.headers.get('set-cookie'), /^dh_market_visitor=/);
+  } finally {
+    globalThis.caches = originalCaches;
+    console.error = originalError;
+  }
+  assert.equal(purges, 0);
+  assert.deepEqual(state.audits[0].params.slice(2, 7), [
+    '%E0%A4%A', 'unknown', 'failed', 'invalid_entry_id_encoding', null,
+  ]);
+});
+
+test('a missing visitor secret never blocks likes and records unavailable identity fields', async () => {
+  const { env, state } = createLikeEnv({ visitorSecret: '' });
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const response = await worker.fetch(
+    new Request('https://dhvault.top/api/public/like/dhm_test', {
+      method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+    }), env, ctx
+  );
+  await settleBackground(ctx);
+
+  assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+  assert.equal(response.headers.get('set-cookie'), null);
+  assert.equal(state.audits[0].params[7], null);
+  assert.equal(state.audits[0].params[9], 'unavailable');
+});
+
+test('visitor signing failures degrade to an unavailable identity without blocking likes', async () => {
+  const { env, state } = createLikeEnv();
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const originalSign = crypto.subtle.sign;
+  crypto.subtle.sign = async () => { throw new Error('signing unavailable'); };
+  try {
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env, ctx
+    );
+    await settleBackground(ctx);
+    assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+    assert.equal(response.headers.get('set-cookie'), null);
+  } finally {
+    crypto.subtle.sign = originalSign;
+  }
+  assert.equal(state.audits[0].params[7], null);
+  assert.equal(state.audits[0].params[9], 'unavailable');
+});
+
+test('audit insert failures without ctx are caught without changing the vote response', async () => {
+  const { env } = createLikeEnv({ auditFails: true });
+  const captured = [];
+  const originalError = console.error;
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  console.error = (...args) => captured.push(args);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env
+    );
+    assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+    console.error = originalError;
+  }
+  assert.equal(unhandled.length, 0);
+  assert.equal(captured[0][0], 'like audit insert failed');
+});
+
+test('catalog endpoints stay unpersonalized when a visitor secret is configured', async () => {
+  const row = {
+    id: 'dhm_public', title: '资源', author: '作者', content_tags: '["模组"]', flavor_tags: '["西幻"]',
+    recommend_value: 1, like_count: 2, summary: '', cover_path: '', target_url: 'https://example.com',
+    created_at: '2026-01-01T00:00:00+00:00', updated_at: '2026-01-01T00:00:00+00:00',
+  };
+  const env = {
+    VISITOR_ID_SECRET: 'visitor-test-secret',
+    DB: { prepare() { return { async all() { return { results: [row] }; } }; } },
+  };
+  for (const [path, keys] of [
+    ['/api/public/bootstrap', ['entries', 'tags']],
+    ['/api/public/entries', ['entries']],
+    ['/api/public/tags', ['contentTags', 'flavorTags']],
+  ]) {
+    const response = await worker.fetch(new Request(`https://dhvault.top${path}`), env, { waitUntil() {} });
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.deepEqual(Object.keys(await response.json()).sort(), keys.sort());
   }
 });
 

@@ -118,9 +118,9 @@ async function handleApi(request, env, ctx, path) {
 
   const likeMatch = path.match(/^\/api\/public\/like\/([^/]+)$/);
   if (method === "POST" && likeMatch) {
-    const response = await toggleLike(request, env, decodeURIComponent(likeMatch[1]), ctx);
-    schedulePublicDirectoryCachePurge(ctx, request);
-    return response;
+    const result = await toggleLike(request, env, likeMatch[1], ctx);
+    if (result.shouldPurge) schedulePublicDirectoryCachePurge(ctx, request);
+    return result.response;
   }
 
   if (method === "POST" && path === "/api/public/submissions") {
@@ -582,13 +582,13 @@ async function importEntries(env, incoming) {
   return incoming.length;
 }
 
-async function toggleLike(request, env, entryId, ctx) {
+async function toggleLike(request, env, rawEntryId, ctx) {
   const visitor = await resolveVisitorIdentity(request, env);
   const userAgent = classifyUserAgent(request.headers.get("user-agent") || "");
   const auditEvent = {
     eventId: crypto.randomUUID(),
     occurredAt: new Date().toISOString(),
-    entryId,
+    entryId: rawEntryId,
     action: "unknown",
     outcome: "failed",
     reasonCode: "internal_error",
@@ -600,8 +600,11 @@ async function toggleLike(request, env, entryId, ctx) {
     identityVersion: LIKE_IDENTITY_VERSION,
     ...userAgent,
   };
-  let phase = "entry_lookup";
+  let phase = "entry_id";
   try {
+    const entryId = decodeURIComponent(rawEntryId);
+    auditEvent.entryId = entryId;
+    phase = "entry_lookup";
     await ensureEntryExists(env, entryId);
     phase = "client_identity";
     const ipHash = await getClientIpHash(request, env);
@@ -628,13 +631,15 @@ async function toggleLike(request, env, entryId, ctx) {
       "SELECT COUNT(*) AS count FROM entry_likes WHERE entry_id = ?"
     ).bind(entryId).first();
     scheduleLikeAudit(ctx, env, auditEvent);
-    return attachVisitorCookie(json({ liked: !current && changed, likeCount: Number(count.count || 0) }), visitor);
+    return {
+      response: attachVisitorCookie(json({ liked: !current && changed, likeCount: Number(count.count || 0) }), visitor),
+      shouldPurge: changed,
+    };
   } catch (error) {
     auditEvent.reasonCode = likeFailureReason(error, phase);
     auditEvent.outcome = "failed";
-    auditEvent.countDelta = null;
     scheduleLikeAudit(ctx, env, auditEvent);
-    return attachVisitorCookie(likeErrorResponse(error), visitor);
+    return { response: attachVisitorCookie(likeErrorResponse(error), visitor), shouldPurge: false };
   }
 }
 
@@ -1627,6 +1632,7 @@ function classifyUserAgent(value) {
 }
 
 function likeFailureReason(error, phase) {
+  if (phase === "entry_id" && error instanceof URIError) return "invalid_entry_id_encoding";
   if (error instanceof ValidationError) {
     if (error.message === "entry not found") return "entry_not_found";
     if (error.message === "unable to identify client") return "client_identity_unavailable";
