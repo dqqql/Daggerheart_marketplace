@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 
 const DATABASE_NAME = "the-great-vault";
 const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
@@ -7,6 +8,11 @@ const EVENT_COLUMNS = [
   "visitor_id", "visitor_first_seen_at", "visitor_id_status", "ip_hash", "identity_version",
   "browser_family", "os_family", "device_class",
 ];
+const require = createRequire(import.meta.url);
+
+export function buildWranglerLaunch(args) {
+  return { program: process.execPath, args: [require.resolve("wrangler"), ...args] };
+}
 
 export function parseIsoInstant(value, name = "time") {
   const match = ISO_INSTANT.exec(String(value || ""));
@@ -82,10 +88,9 @@ export function normalizeD1Result(raw) {
 }
 
 export async function runWranglerD1Query({ sql, target }) {
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  const args = ["wrangler", "d1", "execute", DATABASE_NAME, `--${target}`, "--command", sql, "--json"];
+  const launch = buildWranglerLaunch(["d1", "execute", DATABASE_NAME, `--${target}`, "--command", sql, "--json"]);
   const output = await new Promise((resolve, reject) => {
-    const child = spawn(npx, args, { shell: false, windowsHide: true });
+    const child = spawn(launch.program, launch.args, { shell: false, windowsHide: true });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });

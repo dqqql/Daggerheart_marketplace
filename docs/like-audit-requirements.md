@@ -68,6 +68,7 @@
 - 不提供公开日志查询接口，不增加管理员页面。
 - 只允许授权管理员读取和导出，不向前台返回其他访客的任何身份信息。
 - 日志写入失败，不得把已经成功的点赞显示成失败，或引导用户重复操作；服务端应留下不含身份明细的错误记录，便于发现漏记。
+- 失败记录使用 Pages Functions 的结构化 `console.error`；本仓库不配置 Worker observability。管理员可用 `npx wrangler pages deployment tail --project-name the-great-vault --status error` 实时排查，但平台日志可用性与保留期不保证审计事件完整性。
 - 记录失败和数据库执行结果不确定时如实标注，不声称日志完整无缺。
 - 操作明细与匿名浏览器 Cookie 均固定保留 **90 天**；维护工具按 UTC cutoff 清理到期明细。
 - Worker 经 `waitUntil` 尽力写入审计事件，日志可能因后台写入失败或中断而存在缺口，不声称完整无缺。

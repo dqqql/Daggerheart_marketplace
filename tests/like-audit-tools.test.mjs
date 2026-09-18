@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import test from "node:test";
 
 import {
   buildAuditEventsQuery,
   buildEntriesQuery,
   buildManifest,
+  buildWranglerLaunch,
   escapeSqlLiteral,
   mapEntries,
   normalizeD1Result,
@@ -31,6 +34,18 @@ const eventRows = [
     os_family: "unknown", device_class: "unknown",
   },
 ];
+
+test("Wrangler launcher uses the current Node executable and local package entrypoint without a shell", () => {
+  const require = createRequire(import.meta.url);
+  const launch = buildWranglerLaunch(["--version"]);
+  assert.equal(launch.program, process.execPath);
+  assert.equal(launch.args[0], require.resolve("wrangler"));
+  assert.deepEqual(launch.args.slice(1), ["--version"]);
+  const result = spawnSync(launch.program, launch.args, { shell: false, encoding: "utf8" });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^\d+\.\d+\.\d+/);
+});
 
 test("export arguments strictly canonicalize UTC range and require from before to", () => {
   const args = parseExportArgs([
@@ -156,4 +171,19 @@ test("public footer discloses the limited like-audit data use without forcing co
   assert.match(html, /不保存原始 IP 或完整 UA/);
   assert.match(html, /不会自动处罚/);
   assert.match(html, /清除 Cookie 会更换该标识/);
+});
+
+test("Pages config avoids unsupported Worker observability while operations name supported deployment tailing", async () => {
+  const [config, operations, plan, requirements] = await Promise.all([
+    readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+    readFile(new URL("../docs/like-audit-operations.md", import.meta.url), "utf8"),
+    readFile(new URL("../PLAN.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/like-audit-requirements.md", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(config, /"observability"/);
+  assert.match(operations, /wrangler pages deployment tail --project-name the-great-vault/);
+  assert.doesNotMatch(operations, /Worker observability 已启用/);
+  assert.match(operations, /不配置 Worker observability/);
+  assert.match(plan, /不配置 Worker observability/);
+  assert.match(requirements, /不配置 Worker observability/);
 });

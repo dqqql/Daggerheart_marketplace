@@ -4,6 +4,7 @@
 
 - 生产 Worker 的点赞审计写入 D1 表 `like_audit_events`；通过服务端签发的匿名浏览器 Cookie 及身份版本字段关联审计上下文，不保存原始 IP、完整 Cookie 或完整 User-Agent。
 - 审计写入经 `waitUntil` 尽力异步执行，不改变点赞成功结果；因此日志是排查辅助材料，可能存在后台写入缺口，不能用于自动处罚。
+- 失败以不含身份明细的结构化 `console.error` 写入 Pages Functions 日志；本仓库不配置 Worker observability。管理员可用 `npx wrangler pages deployment tail --project-name the-great-vault --status error` 实时排查，平台日志的可用性与保留期不构成审计明细保证。
 - 维护工具 `scripts/export_like_audit.mjs` 按半开 UTC 范围导出稳定排序的 JSONL、脱敏资源对照和 manifest；`scripts/prune_like_audit.mjs` 以固定 90 天策略先 dry run、再由 `--confirm` 删除。
 - `docs/like-audit-operations.md` 记录 migration、Cloudflare Pages Secret、离线导出、月度清理、访问边界和验证步骤。生产部署状态仍以管理员实际执行 migration 与部署验收为准。
 

@@ -3,13 +3,6 @@
   "name": "the-great-vault",
   "pages_build_output_dir": "./frontend",
   "compatibility_date": "2026-07-01",
-  "observability": {
-    "enabled": true,
-    "logs": {
-      "enabled": true,
-      "persist": true
-    }
-  },
   "d1_databases": [
     {
       "binding": "DB",
