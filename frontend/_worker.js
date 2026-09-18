@@ -1613,7 +1613,7 @@ function classifyUserAgent(value) {
     return { browserFamily: "unknown", osFamily: "unknown", deviceClass: "unknown" };
   }
   let browserFamily = "other";
-  if (/Edg\//i.test(userAgent) || /Edge\//i.test(userAgent)) browserFamily = "Edge";
+  if (/Edg\//i.test(userAgent) || /EdgA\//i.test(userAgent) || /EdgiOS\//i.test(userAgent) || /Edge\//i.test(userAgent)) browserFamily = "Edge";
   else if (/Chrome\//i.test(userAgent) || /CriOS\//i.test(userAgent)) browserFamily = "Chrome";
   else if (/Firefox\//i.test(userAgent) || /FxiOS\//i.test(userAgent)) browserFamily = "Firefox";
   else if (/Safari\//i.test(userAgent)) browserFamily = "Safari";

@@ -1,5 +1,12 @@
 # Daggerheart Marketplace 实现现状
 
+## 2026-09-18：点赞审计维护与保留
+
+- 生产 Worker 的点赞审计写入 D1 表 `like_audit_events`；通过服务端签发的匿名浏览器 Cookie 及身份版本字段关联审计上下文，不保存原始 IP、完整 Cookie 或完整 User-Agent。
+- 审计写入经 `waitUntil` 尽力异步执行，不改变点赞成功结果；因此日志是排查辅助材料，可能存在后台写入缺口，不能用于自动处罚。
+- 维护工具 `scripts/export_like_audit.mjs` 按半开 UTC 范围导出稳定排序的 JSONL、脱敏资源对照和 manifest；`scripts/prune_like_audit.mjs` 以固定 90 天策略先 dry run、再由 `--confirm` 删除。
+- `docs/like-audit-operations.md` 记录 migration、Cloudflare Pages Secret、离线导出、月度清理、访问边界和验证步骤。生产部署状态仍以管理员实际执行 migration 与部署验收为准。
+
 ## 2026-09-18：生产 Worker 点赞身份来源
 
 - `GET /api/public/likes` 和 `POST /api/public/like/:id` 仅使用 Cloudflare 入口提供的 `CF-Connecting-IP` 计算点赞身份，不再使用 `X-Forwarded-For` 或 `local-dev` 回退。
@@ -283,8 +290,7 @@ Worker 生产路径中，点赞数据单独存入 D1 `entry_likes` 表：
 
 IP 哈希规则也已经固化：
 
-- 优先读 `X-Forwarded-For`
-- 退回 `remote_addr`
+- Worker 生产路径只读 Cloudflare 可信入口提供的 `CF-Connecting-IP`；不使用 `X-Forwarded-For` 或应用服务器地址回退。
 - 拼接固定盐值后做 `SHA-256`
 - 取前 `16` 位作为保存值
 

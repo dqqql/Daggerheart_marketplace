@@ -127,6 +127,14 @@ test('coarse user-agent classification never retains the raw user agent', () => 
   assert.deepEqual(__test.classifyUserAgent(''), {
     browserFamily: 'unknown', osFamily: 'unknown', deviceClass: 'unknown',
   });
+  assert.deepEqual(
+    __test.classifyUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 EdgiOS/120.0 Mobile/15E148 Safari/604.1'),
+    { browserFamily: 'Edge', osFamily: 'iOS', deviceClass: 'mobile' }
+  );
+  assert.deepEqual(
+    __test.classifyUserAgent('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/120.0.2210.89'),
+    { browserFamily: 'Edge', osFamily: 'Android', deviceClass: 'mobile' }
+  );
 });
 
 test('successful like writes a queued +1 privacy-safe audit event with millisecond timestamp', async () => {
