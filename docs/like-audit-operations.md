@@ -1,6 +1,6 @@
 # 点赞审计运维手册
 
-点赞审计记录在 D1 数据库 `the-great-vault` 的私有表 `like_audit_events`。浏览器匿名凭据 Cookie 与审计明细均固定保留 90 天；日志不进入公开 API、静态目录或管理页。
+点赞审计记录在 D1 数据库 `the-great-vault` 的私有表 `like_audit_events`。浏览器匿名凭据 Cookie 固定保留 90 天；审计明细采用 90 天保留阈值，日志不进入公开 API、静态目录或管理页。
 
 ## 初始化与密钥
 
@@ -20,8 +20,8 @@ npm run d1:migrate:remote
 导出日期区间是半开区间 `[from, to)`，两个时间都必须是带时区的 ISO 8601 instant。默认目标为远端；`--local` 和 `--remote` 不能同时使用。
 
 ```powershell
-npm run audit:export -- --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --out .\exports\like-audit-2026-09 --remote
-npm run audit:export -- --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --out .\exports\like-audit-local --local
+npm run audit:export -- --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --out .\data\runtime\audit-exports\20260901T000000Z --remote
+npm run audit:export -- --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --out .\data\runtime\audit-exports\20260901T000000Z-local --local
 ```
 
 输出目录包含：
@@ -30,11 +30,11 @@ npm run audit:export -- --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --
 - `entries.json`：仅含 `id`、`title`、`author`；优先读取当前条目，已删除或改名条目可回退至最新历史审核记录。
 - `manifest.json`：请求范围、实际覆盖范围、条目数、目标和已知缺口说明。
 
-导出不包含 `feedbackEmail`、密钥、原始 IP、Cookie 或完整 User-Agent。导出仅应存放在授权管理员可访问的位置。
+导出不包含 `feedbackEmail`、密钥、原始 IP、Cookie 或完整 User-Agent。导出仅应存放在授权管理员可访问的位置。示例目录由 `.gitignore` 忽略；每次使用新的无冒号 UTC 时间戳目录。工具拒绝覆盖任何已存在的 `events.jsonl`、`entries.json` 或 `manifest.json`，请不要复用旧导出目录。
 
 ## 保留期清理
 
-每月先执行 dry run，核对行数和 UTC cutoff；确认无误后才执行删除。默认命令目标仍是远端，因此生产操作需要有 D1 权限的管理员明确加上 `--confirm`。
+90 天保留阈值不等于在第 90 天自动删除：目前没有已配置的自动清理。建议授权管理员每天先执行 dry run，核对行数和 UTC cutoff；确认无误后才执行删除。若维护未运行或失败，记录可能超过 90 天才会在下一次成功维护时删除。默认命令目标仍是远端，因此生产操作需要有 D1 权限的管理员明确加上 `--confirm`。
 
 ```powershell
 npm run audit:prune -- --days 90 --remote

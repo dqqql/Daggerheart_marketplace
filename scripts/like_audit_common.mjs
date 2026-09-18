@@ -87,18 +87,20 @@ export function normalizeD1Result(raw) {
   return { rows: result.results, meta: result.meta || {} };
 }
 
-export async function runWranglerD1Query({ sql, target }) {
+export async function runWranglerD1Query({ sql, target, spawnImpl = spawn }) {
   const launch = buildWranglerLaunch(["d1", "execute", DATABASE_NAME, `--${target}`, "--command", sql, "--json"]);
   const output = await new Promise((resolve, reject) => {
-    const child = spawn(launch.program, launch.args, { shell: false, windowsHide: true });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const child = spawnImpl(launch.program, launch.args, { shell: false, windowsHide: true });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on("data", (chunk) => { stdout.push(Buffer.from(chunk)); });
+    child.stderr.on("data", (chunk) => { stderr.push(Buffer.from(chunk)); });
     child.on("error", reject);
     child.on("close", (code) => {
-      if (code !== 0) reject(new Error(`Wrangler D1 query failed (${code}): ${stderr.trim() || "no error output"}`));
-      else resolve(stdout);
+      const stdoutText = Buffer.concat(stdout).toString("utf8");
+      const stderrText = Buffer.concat(stderr).toString("utf8");
+      if (code !== 0) reject(new Error(`Wrangler D1 query failed (${code}): ${stderrText.trim() || "no error output"}`));
+      else resolve(stdoutText);
     });
   });
   let parsed;

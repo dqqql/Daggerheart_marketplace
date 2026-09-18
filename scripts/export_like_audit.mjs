@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   buildAuditEventsQuery, buildEntriesQuery, buildManifest, buildReviewFallbackQuery, mapEntries,
@@ -19,15 +19,28 @@ export async function exportLikeAudit({ from, to, target, runner = runWranglerD1
   };
 }
 
+export async function writeExportArtifacts({ outDir, artifacts }) {
+  const files = [
+    ["events.jsonl", artifacts.events],
+    ["entries.json", artifacts.entries],
+    ["manifest.json", artifacts.manifest],
+  ].map(([name, contents]) => ({ path: `${outDir}/${name}`, contents }));
+  await mkdir(outDir, { recursive: true });
+  for (const file of files) {
+    try {
+      await access(file.path);
+      throw new Error(`refusing to overwrite existing export artifact: ${file.path}`);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  for (const file of files) await writeFile(file.path, file.contents, { encoding: "utf8", flag: "wx" });
+}
+
 async function main() {
   const args = parseExportArgs(process.argv.slice(2));
   const artifacts = await exportLikeAudit(args);
-  await mkdir(args.outDir, { recursive: true });
-  await Promise.all([
-    writeFile(`${args.outDir}/events.jsonl`, artifacts.events, "utf8"),
-    writeFile(`${args.outDir}/entries.json`, artifacts.entries, "utf8"),
-    writeFile(`${args.outDir}/manifest.json`, artifacts.manifest, "utf8"),
-  ]);
+  await writeExportArtifacts({ outDir: args.outDir, artifacts });
   process.stdout.write(`Exported like audit files to ${args.outDir}\n`);
 }
 
