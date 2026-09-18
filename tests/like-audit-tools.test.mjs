@@ -181,7 +181,8 @@ test("Pages config avoids unsupported Worker observability while operations name
     readFile(new URL("../docs/like-audit-requirements.md", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(config, /"observability"/);
-  assert.match(operations, /wrangler pages deployment tail --project-name the-great-vault/);
+  assert.match(operations, /wrangler pages deployment tail --project-name the-great-vault --search "like audit insert failed"/);
+  assert.doesNotMatch(operations, /pages deployment tail --project-name the-great-vault --status error/);
   assert.doesNotMatch(operations, /Worker observability 已启用/);
   assert.match(operations, /不配置 Worker observability/);
   assert.match(plan, /不配置 Worker observability/);

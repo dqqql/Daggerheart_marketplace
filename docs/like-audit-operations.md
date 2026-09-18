@@ -45,10 +45,10 @@ npm run audit:prune -- --days 90 --remote --confirm
 
 ## 可靠性、访问与回滚边界
 
-Worker 用 `waitUntil` 尽力异步写审计事件：点赞结果不会因日志写入失败而失败，因此导出可能存在缺口，不能把日志视为完整取证或自动处罚依据。失败会以不含身份明细的结构化 `console.error` 写入 Pages Functions 日志；本仓库不配置 Worker observability。授权管理员可使用当前 Wrangler 支持的实时查看命令排查：
+Worker 用 `waitUntil` 尽力异步写审计事件：点赞结果不会因日志写入失败而失败，因此导出可能存在缺口，不能把日志视为完整取证或自动处罚依据。失败会以不含身份明细的结构化 `console.error` 写入 Pages Functions 日志；本仓库不配置 Worker observability。审计插入错误已在正常响应中捕获，不能使用 `--status error`，否则会漏掉这些调用。授权管理员可使用当前 Wrangler 支持的消息筛选实时查看命令排查：
 
 ```powershell
-npx wrangler pages deployment tail --project-name the-great-vault --status error
+npx wrangler pages deployment tail --project-name the-great-vault --search "like audit insert failed"
 ```
 
 平台日志的可用性与保留期由 Cloudflare Pages 决定，不能作为审计事件的完整、长期副本。
