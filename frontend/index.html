@@ -913,6 +913,113 @@
     }
 
     /* ══════════════════════════════════════════
+       投稿说明 Dialog (native <dialog>，独立于 .modal-overlay)
+       ══════════════════════════════════════════ */
+    #submissionNoticeDialog {
+      width: 640px;
+      max-width: calc(100vw - 32px); /* 移动端左右各留 16px */
+      max-height: 90vh;
+      max-height: 90dvh;
+      margin: auto;
+      padding: 0;
+      border: 1px solid var(--border-gold-strong);
+      border-radius: var(--radius-md); /* 6px，不超过 8px */
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-modal);
+      overflow: hidden;
+    }
+    #submissionNoticeDialog[open] {
+      display: flex;
+      flex-direction: column;
+    }
+    #submissionNoticeDialog::backdrop {
+      background: var(--overlay-bg);
+      backdrop-filter: blur(4px);
+    }
+    #submissionNoticeDialog .submission-notice-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+      gap: 12px;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--divider);
+    }
+    #submissionNoticeDialog .submission-notice-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0;
+    }
+    #submissionNoticeDialog .submission-notice-close {
+      background: none; border: none; color: var(--text-muted);
+      font-size: 22px; line-height: 1; cursor: pointer;
+      padding: 4px 8px; border-radius: var(--radius-sm);
+      transition: color var(--transition-fast);
+    }
+    #submissionNoticeDialog .submission-notice-close:hover { color: var(--text-primary); }
+    #submissionNoticeDialog .submission-notice-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 20px 24px;
+    }
+    #submissionNoticeDialog .submission-notice-body p,
+    #submissionNoticeDialog .submission-notice-body li {
+      font-size: 16px;
+      line-height: 1.8;
+      color: var(--text-primary);
+      margin-bottom: 14px;
+    }
+    #submissionNoticeDialog .submission-notice-body p:last-child { margin-bottom: 0; }
+    #submissionNoticeDialog .submission-notice-body h3 {
+      font-size: 16px;
+      color: var(--gold);
+      margin: 20px 0 10px;
+      letter-spacing: 0;
+    }
+    #submissionNoticeDialog .submission-notice-body h3:first-child { margin-top: 0; }
+    #submissionNoticeDialog .submission-notice-body ul { padding-left: 24px; margin-bottom: 14px; }
+    #submissionNoticeDialog .submission-notice-body .submission-notice-footnote {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+    #submissionNoticeDialog .submission-notice-footer {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+      gap: 12px;
+      padding: 14px 24px;
+      border-top: 1px solid var(--divider);
+    }
+    #submissionNoticeDialog .submission-notice-check {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--text-secondary);
+      cursor: pointer; user-select: none;
+    }
+    #submissionNoticeDialog .submission-notice-check input[type="checkbox"] {
+      width: 16px; height: 16px; flex-shrink: 0;
+      accent-color: var(--gold); cursor: pointer;
+    }
+    #submissionNoticeDialog .submission-notice-actions {
+      display: flex; gap: 10px; margin-left: auto;
+    }
+    #submissionNoticeDialog .submission-notice-actions .btn {
+      min-height: 40px; padding: 10px 20px;
+      border-radius: var(--radius-md); font-size: 14px;
+    }
+    #submissionNoticeDialog .btn--gold {
+      background: var(--gold-dark); color: var(--gold-bright);
+      border-color: var(--border-gold);
+    }
+    #submissionNoticeDialog .btn--gold:hover { background: var(--gold-dim); color: var(--gold-bright); }
+    #submissionNoticeDialog .btn--ghost {
+      background: transparent; color: var(--text-secondary);
+      border-color: var(--border-medium);
+    }
+    #submissionNoticeDialog .btn--ghost:hover { color: var(--text-primary); border-color: var(--border-hover); }
+
+    /* ══════════════════════════════════════════
        States: Loading, Empty, Error
        ══════════════════════════════════════════ */
     .state-message {
@@ -1173,6 +1280,23 @@
         padding: 12px 16px;
       }
 
+      /* ── 投稿说明 dialog：窄屏更紧凑 ── */
+      #submissionNoticeDialog .submission-notice-header {
+        padding: 14px 16px;
+      }
+      #submissionNoticeDialog .submission-notice-body {
+        padding: 16px;
+      }
+      #submissionNoticeDialog .submission-notice-footer {
+        padding: 12px 16px;
+      }
+      #submissionNoticeDialog .submission-notice-actions {
+        width: 100%;
+      }
+      #submissionNoticeDialog .submission-notice-actions .btn {
+        flex: 1;
+      }
+
       /* 结果计数 */
       .results-count {
         margin-top: 16px;
@@ -1353,6 +1477,11 @@
     #submitModalOverlay .btn--ghost:hover { color: var(--text-primary); border-color: var(--border-hover); }
     #submitModalOverlay .btn--sm { padding: 5px 12px; font-size: 12px; }
     #submitModalOverlay .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* 表单头部：投稿说明入口 + 关闭按钮 */
+    #submitModalOverlay .submit-modal-header-actions {
+      display: flex; align-items: center; gap: 10px;
+    }
 
     /* ── Subscribe Modal ── */
     #subscribeModal .modal { width: 460px; }
@@ -1548,7 +1677,10 @@
     <div class="modal-panel">
       <div class="modal-header">
         <span class="modal-title">提交资源</span>
-        <button class="modal-close" id="submitModalClose" type="button">&times;</button>
+        <div class="submit-modal-header-actions">
+          <button class="btn btn--ghost btn--sm" id="submitNoticeReopenBtn" type="button">投稿说明</button>
+          <button class="modal-close" id="submitModalClose" type="button">&times;</button>
+        </div>
       </div>
       <div class="modal-body" id="submitModalBody"></div>
       <div class="modal-footer">
@@ -1557,6 +1689,41 @@
       </div>
     </div>
   </div>
+
+  <!-- 投稿说明 Dialog（原生 dialog，独立于 .modal-overlay） -->
+  <dialog id="submissionNoticeDialog" role="dialog" aria-labelledby="submissionNoticeTitle">
+    <div class="submission-notice-header">
+      <h2 class="submission-notice-title" id="submissionNoticeTitle">投稿说明</h2>
+      <button class="submission-notice-close" id="submissionNoticeClose" type="button" aria-label="关闭投稿说明">&times;</button>
+    </div>
+    <div class="submission-notice-body" tabindex="0">
+      <h3>平台与审核</h3>
+      <p>宏伟宝库是第三方资源展示与分享平台。投稿内容应遵守法律法规与公序良俗，不得抄袭或侵犯他人权益；内容应基本可读，避免明显无法理解的文字。请准确填写资源分类及适用规则。</p>
+      <p>宏伟宝库作为一个社群平台仅对以上原则性问题进行审核，不对作品质量、平衡性、适用性做出筛选。</p>
+      <h3>AI 使用声明</h3>
+      <p>请在资源正文首页（封面除外）显著注明是否使用生成式 AI；如有使用，请说明涉及的部分和用途（如文字、插图、翻译或排版），未使用AI也请明确注明。</p>
+      <p>示例：</p>
+      <ul>
+        <li>未使用生成式 AI 创作本资源。</li>
+        <li>本资源的封面插图使用生成式 AI，正文与规则设计未使用。</li>
+        <li>本资源使用生成式 AI 辅助翻译和文字润色，全文已由作者复核。</li>
+      </ul>
+      <h3>生效与历史投稿</h3>
+      <p>本次新增要求不追溯生效日期之前的历史投稿，无需补交声明；但不代表豁免抄袭、侵权等问题。</p>
+      <p>如发现抄袭、侵权或有证据表明声明不实，平台可要求说明、修改或下架，并告知具体原因。声明不实处置亦以正式生效后的适用投稿为限。</p>
+      <p class="submission-notice-footnote">本公告自 2026年09月18日 起生效。</p>
+    </div>
+    <div class="submission-notice-footer">
+      <label class="submission-notice-check">
+        <input type="checkbox" id="submissionNoticeDismiss">
+        <span>不再显示（当前浏览器）</span>
+      </label>
+      <div class="submission-notice-actions">
+        <button class="btn btn--ghost" id="submissionNoticeCancel" type="button">取消</button>
+        <button class="btn btn--gold" id="submissionNoticeContinue" type="button">继续投稿</button>
+      </div>
+    </div>
+  </dialog>
 
   <!-- 订阅通知 Modal -->
   <div class="modal-overlay" id="subscribeModal" role="dialog" aria-modal="true" aria-labelledby="subscribeModalTitle">
@@ -1748,6 +1915,8 @@
     }
 
     function updateCardLikeUI(entryId, liked, likeCount) {
+      const entry = state.entries.find(e => e.id === entryId);
+      const displayCount = window.CatalogOrder.score({ likeCount, recommendValue: entry?.recommendValue });
       const btns = document.querySelectorAll(`.card-like-btn[data-entry-id="${entryId}"]`);
       btns.forEach(btn => {
         btn.classList.toggle('liked', liked);
@@ -1755,13 +1924,13 @@
         const icon = btn.querySelector('.card-like-icon');
         if (icon) icon.innerHTML = liked ? '&#9829;' : '&#9825;';
         let countEl = btn.querySelector('.card-like-count');
-        if (likeCount > 0) {
+        if (displayCount > 0) {
           if (!countEl) {
             countEl = document.createElement('span');
             countEl.className = 'card-like-count';
             btn.appendChild(countEl);
           }
-          countEl.textContent = likeCount;
+          countEl.textContent = displayCount;
         } else {
           if (countEl) countEl.remove();
         }
@@ -1818,7 +1987,7 @@
       const cTags = window.CatalogOrder.tags(entry.contentTags || []);
       const fTags = entry.flavorTags || [];
       const liked = state.likedEntries.includes(entry.id);
-      const likeCount = entry.likeCount || 0;
+      const likeCount = window.CatalogOrder.score(entry);
 
       const imageHtml = entry.coverPath
         ? `<img src="${escAttr(entry.coverPath)}" alt="${escAttr(entry.title)} 封面"
@@ -1905,19 +2074,22 @@
         const sorted = window.CatalogOrder.entries(state.entries, 'latest');
         const latest = sorted.slice(0, CONFIG.LATEST_COUNT);
         const bySelectedOrder = (arr) => window.CatalogOrder.entries(arr, state.sortMode);
+        // 仅下方五个分区排除 PbDH：战役框架 / 模组 / 玩家资源 / GM资源 / 扩展规则。
+        // 最新收录、编辑推荐、社群匕选、PbDH 专区与全局搜索结果仍基于全量条目。
+        const nonPbDHEntries = state.entries.filter(e => !window.ContentTags.isPbDH(e));
         const campaignTags = CONFIG.CAMPAIGN_FRAMEWORK_TAGS;
-        const campaign = bySelectedOrder(state.entries.filter(e => campaignTags.some(t => hasTag(e, t))));
+        const campaign = bySelectedOrder(nonPbDHEntries.filter(e => campaignTags.some(t => hasTag(e, t))));
         const moduleTags = CONFIG.MODULE_TAGS;
-        const module = bySelectedOrder(state.entries.filter(e => moduleTags.some(t => hasTag(e, t))));
+        const module = bySelectedOrder(nonPbDHEntries.filter(e => moduleTags.some(t => hasTag(e, t))));
         const campaignOrModule = new Set([...campaign.map(e => e.id), ...module.map(e => e.id)]);
         const playerResourceTags = CONFIG.PLAYER_RESOURCE_TAGS;
-        const playerResource = bySelectedOrder(state.entries.filter(e =>
+        const playerResource = bySelectedOrder(nonPbDHEntries.filter(e =>
           !campaignOrModule.has(e.id) && playerResourceTags.some(t => hasTag(e, t))));
         const gmResourceTags = CONFIG.GM_RESOURCE_TAGS;
-        const gmResource = bySelectedOrder(state.entries.filter(e =>
+        const gmResource = bySelectedOrder(nonPbDHEntries.filter(e =>
           !campaignOrModule.has(e.id) && gmResourceTags.some(t => hasTag(e, t))));
         const extRuleTags = CONFIG.EXT_RULE_TAGS;
-        const extRule = bySelectedOrder(state.entries.filter(e => extRuleTags.some(t => hasTag(e, t))));
+        const extRule = bySelectedOrder(nonPbDHEntries.filter(e => extRuleTags.some(t => hasTag(e, t))));
         const pbdh = bySelectedOrder(state.entries.filter(window.ContentTags.isPbDH));
 
         if (!state.dailyHighlights) state.dailyHighlights = window.CatalogOrder.highlights(state.entries, state.rotationDay, CONFIG);
@@ -2161,6 +2333,13 @@
     const submitBody = document.getElementById('submitModalBody');
     let submitForm = null;
 
+    const submissionNoticeDialog = document.getElementById('submissionNoticeDialog');
+    const submissionNoticeClose = document.getElementById('submissionNoticeClose');
+    const submissionNoticeCancel = document.getElementById('submissionNoticeCancel');
+    const submissionNoticeContinue = document.getElementById('submissionNoticeContinue');
+    const submissionNoticeDismiss = document.getElementById('submissionNoticeDismiss');
+    const submitNoticeReopenBtn = document.getElementById('submitNoticeReopenBtn');
+
     const subscribeBtn = document.getElementById('subscribeBtn');
     const subscribeModal = document.getElementById('subscribeModal');
     const subscribeClose = document.getElementById('subscribeModalClose');
@@ -2220,7 +2399,82 @@
       mountSubmitForm();
     }
 
-    submitBtn.addEventListener('click', openSubmitModal);
+    // ── 投稿说明（原生 dialog，独立于 .modal-overlay）──
+    const SUBMISSION_NOTICE_KEY = 'dhm-submission-notice:2026-09-18-v1';
+    let submissionNoticeReturnFocus = null;
+    let submissionNoticeSuppressFocusRestore = false;
+
+    function hasSeenSubmissionNotice() {
+      try { return localStorage.getItem(SUBMISSION_NOTICE_KEY) === '1'; } catch { return false; }
+    }
+
+    function rememberSubmissionNoticeChoice(checked) {
+      try {
+        if (checked) localStorage.setItem(SUBMISSION_NOTICE_KEY, '1');
+        else localStorage.removeItem(SUBMISSION_NOTICE_KEY);
+      } catch { /* 存储不可用时静默忽略，不阻塞继续投稿 */ }
+    }
+
+    function openSubmissionNotice(fromForm) {
+      submissionNoticeReturnFocus = fromForm ? submitNoticeReopenBtn : submitBtn;
+      submissionNoticeDismiss.checked = false; // 默认不勾，取消不记忆
+      document.body.style.overflow = 'hidden';
+      if (submissionNoticeDialog.open) return;
+      submissionNoticeDialog.showModal();
+      requestAnimationFrame(function () { submissionNoticeClose.focus(); });
+    }
+
+    function finishSubmissionNoticeClose() {
+      // 说明关闭后：仍停留在投稿表单则继续锁滚动，否则恢复页面滚动
+      document.body.style.overflow = submitOverlay.classList.contains('visible') ? 'hidden' : '';
+      var target = submissionNoticeReturnFocus;
+      submissionNoticeReturnFocus = null;
+      if (!submissionNoticeSuppressFocusRestore && target && typeof target.focus === 'function') {
+        target.focus();
+      }
+      submissionNoticeSuppressFocusRestore = false;
+    }
+
+    function closeSubmissionNotice() {
+      if (submissionNoticeDialog.open) {
+        submissionNoticeDialog.close();
+      } else {
+        submissionNoticeDialog.removeAttribute('open');
+        finishSubmissionNoticeClose();
+      }
+    }
+
+    submissionNoticeDialog.addEventListener('close', finishSubmissionNoticeClose);
+
+    function focusSubmitFormFirstField() {
+      requestAnimationFrame(function () {
+        var field = submitBody.querySelector('[data-field="title"]');
+        if (field && typeof field.focus === 'function') field.focus();
+      });
+    }
+
+    function continueFromSubmissionNotice() {
+      rememberSubmissionNoticeChoice(submissionNoticeDismiss.checked);
+      submissionNoticeSuppressFocusRestore = true; // 交由表单接管焦点
+      closeSubmissionNotice();
+      openSubmitModal();
+      focusSubmitFormFirstField();
+    }
+
+    submissionNoticeClose.addEventListener('click', closeSubmissionNotice);
+    submissionNoticeCancel.addEventListener('click', closeSubmissionNotice);
+    submissionNoticeContinue.addEventListener('click', continueFromSubmissionNotice);
+    submitNoticeReopenBtn.addEventListener('click', function () { openSubmissionNotice(true); });
+
+    // 首次投稿先看说明；选择“不再显示”后直接进入表单
+    submitBtn.addEventListener('click', function () {
+      if (hasSeenSubmissionNotice()) {
+        openSubmitModal();
+        focusSubmitFormFirstField();
+      } else {
+        openSubmissionNotice(false);
+      }
+    });
     submitClose.addEventListener('click', closeSubmitModal);
     submitCancel.addEventListener('click', closeSubmitModal);
 
@@ -2322,6 +2576,8 @@
     });
     document.addEventListener('keydown', function (event) {
       if (event.key !== 'Escape') return;
+      // 投稿说明 dialog 打开时，Escape 交给原生 dialog 自行关闭，避免连带关闭底下的投稿表单
+      if (submissionNoticeDialog.open) return;
       if (subscribeModal.classList.contains('visible')) {
         closeSubscribeModal();
       } else if (submitOverlay.classList.contains('visible')) {

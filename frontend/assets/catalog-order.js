@@ -10,11 +10,13 @@
   function timestamp(entry) { return Date.parse(entry.updatedAt) || 0; }
   function idOrder(a, b) { return String(a.id).localeCompare(String(b.id), 'en'); }
   function latest(a, b) { return timestamp(b) - timestamp(a) || idOrder(a, b); }
+  function score(entry) {
+    return (Number(entry.likeCount) || 0) + (Number(entry.recommendValue) || 0) * 10;
+  }
   function entries(items, mode) {
     return items.slice().sort(function (a, b) {
       if (mode === 'hot') {
-        var delta = (Number(b.likeCount) || 0) + (Number(b.recommendValue) || 0) * 10
-          - (Number(a.likeCount) || 0) - (Number(a.recommendValue) || 0) * 10;
+        var delta = score(b) - score(a);
         if (delta) return delta;
       }
       return latest(a, b);
@@ -45,5 +47,5 @@
     }), day, 'popular').slice(0, config.POPULAR_PICK_COUNT);
     return { editor: editor, popular: popular };
   }
-  root.CatalogOrder = Object.freeze({ tags: tags, entries: entries, dayKey: dayKey, highlights: highlights });
+  root.CatalogOrder = Object.freeze({ tags: tags, entries: entries, score: score, dayKey: dayKey, highlights: highlights });
 })(globalThis);
