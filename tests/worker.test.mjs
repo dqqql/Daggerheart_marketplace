@@ -5,6 +5,40 @@ import test from "node:test";
 import worker, { __test } from "../frontend/_worker.js";
 import '../frontend/assets/catalog-order.js';
 
+test('like identity ignores forwarded headers and preserves existing trusted-IP hashes', async () => {
+  const hashes = [];
+  const env = { DB: { prepare() { return { bind(hash) {
+    hashes.push(hash);
+    return { async all() { return { results: [] }; } };
+  } }; } } };
+  for (const forwarded of ['198.51.100.1', '198.51.100.2, 198.51.100.3']) {
+    const response = await worker.fetch(new Request('https://dhvault.top/api/public/likes', {
+      headers: { 'cf-connecting-ip': '203.0.113.10', 'x-forwarded-for': forwarded },
+    }), env, {});
+    assert.equal(response.status, 200);
+  }
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('dh_like_203.0.113.10'));
+  const expected = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  assert.deepEqual(hashes, [expected, expected]);
+});
+
+test('like endpoints reject missing trusted IP without reading or writing likes', async () => {
+  const env = { DB: { prepare(sql) {
+    // 允许原有的条目存在性检查，但不允许访问点赞记录。
+    assert.ok(!sql.includes('entry_likes'));
+    return { bind() { return { async first() { return { id: 'dhm_test' }; } }; } };
+  } } };
+  for (const headers of [{}, { 'x-forwarded-for': '203.0.113.10' }, { 'cf-connecting-ip': ' ' }]) {
+    for (const [method, endpoint] of [['GET', 'likes'], ['POST', 'like/dhm_test']]) {
+      const response = await worker.fetch(new Request(`https://dhvault.top/api/public/${endpoint}`, {
+        method, headers,
+      }), env, {});
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: 'unable to identify client' });
+    }
+  }
+});
+
 test('legacy discarded content moves to flavor, while aliases merge without duplication', () => {
   const row = { content_tags: '["战役框架","新人友好","武侠","种族","转变卡","单人游玩"]', flavor_tags: '["武侠"]' };
   for (const convert of [__test.rowToEntry, __test.rowToSubmission]) {

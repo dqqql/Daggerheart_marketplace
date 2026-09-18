@@ -1,5 +1,12 @@
 # Daggerheart Marketplace 实现现状
 
+## 2026-09-18：生产 Worker 点赞身份来源
+
+- `GET /api/public/likes` 和 `POST /api/public/like/:id` 仅使用 Cloudflare 入口提供的 `CF-Connecting-IP` 计算点赞身份，不再使用 `X-Forwarded-For` 或 `local-dev` 回退。
+- 缺少有效地址时返回 HTTP 400，错误为 `unable to identify client`；本地接口测试需显式提供测试地址，不得将可绕过 Cloudflare 的服务作为生产入口。
+- 哈希算法、盐值与数据库结构不变，不清理或迁移历史点赞。此前依赖不同转发头值的记录可能无法匹配，不能保证所有旧身份连续。
+- 本轮只修正身份来源，不新增限流、账号、人机验证或更改点赞切换行为。
+
 本文档不再记录“理想中的首版方案”，而是记录当前仓库里已经落地的实际实现，并回答三个问题：
 
 - 设计是什么样的
