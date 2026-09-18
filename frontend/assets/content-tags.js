@@ -3,20 +3,20 @@
 
   // 标签名称与介绍的唯一维护入口；替换 description 即可更新悬停说明。
   var definitions = [
-    { tag: '战役框架', description: '「战役框架」的标签介绍待补充。' },
-    { tag: '模组', description: '「模组」的标签介绍待补充。' },
-    { tag: '敌人', description: '「敌人」的标签介绍待补充。' },
-    { tag: '扩展规则', description: '「扩展规则」的标签介绍待补充。' },
-    { tag: '环境', description: '「环境」的标签介绍待补充。' },
-    { tag: '职业', description: '「职业」的标签介绍待补充。' },
-    { tag: '领域', description: '「领域」的标签介绍待补充。' },
-    { tag: '装备物品', description: '「装备物品」的标签介绍待补充。' },
-    { tag: '传承', description: '「传承」的标签介绍待补充。' },
-    { tag: '遭遇', description: '「遭遇」的标签介绍待补充。' },
-    { tag: 'PbDH', description: '「PbDH」的标签介绍待补充。' },
-    { tag: '设定', description: '「设定」的标签介绍待补充。' },
-    { tag: '电子工具', description: '「电子工具」的标签介绍待补充。' },
-    { tag: '工具书', description: '「工具书」的标签介绍待补充。' }
+    { tag: '战役框架', description: '为一段战役提供主题、世界背景、角色关联、独有机制等要素，帮助整桌建立共同的冒险方向，以此展开一场战役。' },
+    { tag: '模组', description: '可供主持人准备和运行的冒险内容，通常包含事件、场景、人物、线索与推进方式，可覆盖一次或多次团期。' },
+    { tag: '敌人', description: '可供主持人使用的敌人资料，包括动机、数值与特性，可用于战斗或其他对抗场景。' },
+    { tag: '扩展规则', description: '在所适用游戏的基础规则之上新增或调整玩法，例如房规、可选机制或子系统。' },
+    { tag: '环境', description: '将地点、局势或场景表现为可运行的机制交互，通常包含难度、特性和相关风味辅助。仅有风味性描述、不带有机制性内容的地点请使用“设定”。' },
+    { tag: '职业', description: '新增或调整的职业与子职内容，包括职业特性、子职能力及相关角色选项。' },
+    { tag: '领域', description: '新增领域或调整已有领域卡内容，为角色提供可选择的能力、法术或其他领域选项。' },
+    { tag: '装备物品', description: '可供游戏使用的武器、护甲、消耗品、战利品及其他物品资料。' },
+    { tag: '传承', description: '与角色身份和出身相关的选项，包括种族、社群与转变卡等内容。' },
+    { tag: '遭遇', description: '可嵌入冒险的单个或一组场景，提供参与者、冲突、目标和变化，可能包含战斗、社交或探索。' },
+    { tag: 'PbDH', description: '以《匕首心》为基础进行改造、“可独立运行”且“不直接兼容原版”的游戏，以及专为这些游戏制作的配套资源；使用前请确认适用规则，并在风味标签里加入对应的规则名称。' },
+    { tag: '设定', description: '世界、地区、地点、组织、人物或文化等，无机制交互的纯背景资料，为创作和跑团提供素材。' },
+    { tag: '电子工具', description: '辅助准备或进行游戏的网站、软件、插件与数字化工具，例如车卡器、骰娘脚本、跑团工具或素材网站。' },
+    { tag: '工具书', description: '供玩家或主持人查阅使用的指南、参考表、素材集与方法汇编，侧重辅助创作或游戏实践。' }
   ].map(function (item) { return Object.freeze(item); });
   var allowed = new Set(definitions.map(function (item) { return item.tag; }));
   var aliases = new Map([

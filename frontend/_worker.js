@@ -1513,9 +1513,9 @@ function parseCookies(cookieHeader) {
 }
 
 async function getClientIpHash(request, env) {
-  const forwarded = (request.headers.get("x-forwarded-for") || "").split(",")[0].trim();
-  const ip = forwarded || request.headers.get("cf-connecting-ip") || "local-dev";
-  if (!ip) return "";
+  // 仅信任 Cloudflare 入口提供的地址，不接受客户端自填的转发链。
+  const ip = (request.headers.get("cf-connecting-ip") || "").trim();
+  if (!ip) throw new ValidationError("unable to identify client");
   const salt = env.LIKE_HASH_SALT || "dh_like_";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${salt}${ip}`));
   return Array.from(new Uint8Array(digest))
