@@ -174,4 +174,3 @@ Confirm separate like/unlike history, actual delta, network-independent visitor 
 - [ ] **Step 3: Apply only review-required fixes and commit**
 
 Commit as `fix: close like audit acceptance gaps` only if fixes are required.
-
