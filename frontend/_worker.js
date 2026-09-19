@@ -5,6 +5,11 @@ const PENDING_COVER_URL_PREFIX = "/the-great-vault/covers/pending";
 const SESSION_COOKIE_NAME = "dh_market_admin";
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const LIKE_HASH_LENGTH = 16;
+const VISITOR_ID_VERSION = 1;
+const VISITOR_ID_TTL_SECONDS = 90 * 24 * 60 * 60;
+const VISITOR_ID_TTL_MS = VISITOR_ID_TTL_SECONDS * 1000;
+const VISITOR_COOKIE_NAME = "dh_market_visitor";
+const LIKE_IDENTITY_VERSION = "cf-ip-sha256-trunc16-v1+visitor-hmac-v1";
 const ENTRY_ID_PREFIX = "dhm_";
 const SUBMISSION_ID_PREFIX = "sub_";
 const REVIEW_ID_PREFIX = "rev_";
@@ -99,18 +104,23 @@ async function handleApi(request, env, ctx, path) {
     });
   }
   if (method === "GET" && path === "/api/public/likes") {
-    const ipHash = await getClientIpHash(request, env);
-    const likes = await env.DB.prepare(
-      "SELECT entry_id FROM entry_likes WHERE ip_hash = ? ORDER BY entry_id"
-    ).bind(ipHash).all();
-    return json({ likedEntryIds: likes.results.map((row) => row.entry_id) });
+    const visitor = await resolveVisitorIdentity(request, env);
+    try {
+      const ipHash = await getClientIpHash(request, env);
+      const likes = await env.DB.prepare(
+        "SELECT entry_id FROM entry_likes WHERE ip_hash = ? ORDER BY entry_id"
+      ).bind(ipHash).all();
+      return attachVisitorCookie(json({ likedEntryIds: likes.results.map((row) => row.entry_id) }), visitor);
+    } catch (error) {
+      return attachVisitorCookie(likeErrorResponse(error), visitor);
+    }
   }
 
   const likeMatch = path.match(/^\/api\/public\/like\/([^/]+)$/);
   if (method === "POST" && likeMatch) {
-    const response = await toggleLike(request, env, decodeURIComponent(likeMatch[1]));
-    schedulePublicDirectoryCachePurge(ctx, request);
-    return response;
+    const result = await toggleLike(request, env, likeMatch[1], ctx);
+    if (result.shouldPurge) schedulePublicDirectoryCachePurge(ctx, request);
+    return result.response;
   }
 
   if (method === "POST" && path === "/api/public/submissions") {
@@ -572,30 +582,65 @@ async function importEntries(env, incoming) {
   return incoming.length;
 }
 
-async function toggleLike(request, env, entryId) {
-  await ensureEntryExists(env, entryId);
-  const ipHash = await getClientIpHash(request, env);
-  if (!ipHash) throw new ValidationError("unable to identify client");
-
-  const current = await env.DB.prepare(
-    "SELECT 1 FROM entry_likes WHERE entry_id = ? AND ip_hash = ?"
-  ).bind(entryId, ipHash).first();
-  let liked;
-  if (current) {
-    await env.DB.prepare(
-      "DELETE FROM entry_likes WHERE entry_id = ? AND ip_hash = ?"
-    ).bind(entryId, ipHash).run();
-    liked = false;
-  } else {
-    await env.DB.prepare(
-      "INSERT INTO entry_likes (entry_id, ip_hash, created_at) VALUES (?, ?, ?)"
-    ).bind(entryId, ipHash, nowIso()).run();
-    liked = true;
+async function toggleLike(request, env, rawEntryId, ctx) {
+  const visitor = await resolveVisitorIdentity(request, env);
+  const userAgent = classifyUserAgent(request.headers.get("user-agent") || "");
+  const auditEvent = {
+    eventId: crypto.randomUUID(),
+    occurredAt: new Date().toISOString(),
+    entryId: rawEntryId,
+    action: "unknown",
+    outcome: "failed",
+    reasonCode: "internal_error",
+    countDelta: null,
+    visitorId: visitor.visitorId,
+    visitorFirstSeenAt: visitor.visitorFirstSeenAt,
+    visitorIdStatus: visitor.status,
+    ipHash: null,
+    identityVersion: LIKE_IDENTITY_VERSION,
+    ...userAgent,
+  };
+  let phase = "entry_id";
+  try {
+    const entryId = decodeURIComponent(rawEntryId);
+    auditEvent.entryId = entryId;
+    phase = "entry_lookup";
+    await ensureEntryExists(env, entryId);
+    phase = "client_identity";
+    const ipHash = await getClientIpHash(request, env);
+    auditEvent.ipHash = ipHash;
+    phase = "vote_state";
+    const current = await env.DB.prepare(
+      "SELECT 1 FROM entry_likes WHERE entry_id = ? AND ip_hash = ?"
+    ).bind(entryId, ipHash).first();
+    auditEvent.action = current ? "unlike" : "like";
+    phase = "vote_mutation";
+    const mutation = current
+      ? await env.DB.prepare(
+        "DELETE FROM entry_likes WHERE entry_id = ? AND ip_hash = ?"
+      ).bind(entryId, ipHash).run()
+      : await env.DB.prepare(
+        "INSERT INTO entry_likes (entry_id, ip_hash, created_at) VALUES (?, ?, ?)"
+      ).bind(entryId, ipHash, nowIso()).run();
+    const changed = Number(mutation.meta && mutation.meta.changes) > 0;
+    auditEvent.countDelta = changed ? (current ? -1 : 1) : 0;
+    auditEvent.outcome = changed ? "success" : "no_change";
+    auditEvent.reasonCode = "";
+    phase = "like_count";
+    const count = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM entry_likes WHERE entry_id = ?"
+    ).bind(entryId).first();
+    scheduleLikeAudit(ctx, env, auditEvent);
+    return {
+      response: attachVisitorCookie(json({ liked: !current && changed, likeCount: Number(count.count || 0) }), visitor),
+      shouldPurge: changed,
+    };
+  } catch (error) {
+    auditEvent.reasonCode = likeFailureReason(error, phase);
+    auditEvent.outcome = "failed";
+    scheduleLikeAudit(ctx, env, auditEvent);
+    return { response: attachVisitorCookie(likeErrorResponse(error), visitor), shouldPurge: false };
   }
-  const count = await env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM entry_likes WHERE entry_id = ?"
-  ).bind(entryId).first();
-  return json({ liked, likeCount: Number(count.count || 0) });
 }
 
 async function ensureEntryExists(env, entryId) {
@@ -1524,6 +1569,125 @@ async function getClientIpHash(request, env) {
     .slice(0, LIKE_HASH_LENGTH);
 }
 
+async function resolveVisitorIdentity(request, env) {
+  const secret = typeof env.VISITOR_ID_SECRET === "string" ? env.VISITOR_ID_SECRET : "";
+  if (!secret) {
+    return { status: "unavailable", visitorId: null, visitorFirstSeenAt: null, setCookie: "" };
+  }
+  const cookies = parseCookies(request.headers.get("cookie") || "");
+  const verified = await verifyVisitorCredential(cookies[VISITOR_COOKIE_NAME], secret);
+  if (verified) {
+    return {
+      status: "valid",
+      visitorId: verified.id,
+      visitorFirstSeenAt: new Date(verified.firstSeenAt).toISOString(),
+      setCookie: "",
+    };
+  }
+  try {
+    const issued = await issueVisitorCredential(secret);
+    return {
+      status: "new",
+      visitorId: issued.payload.id,
+      visitorFirstSeenAt: new Date(issued.payload.firstSeenAt).toISOString(),
+      setCookie: visitorCookie(issued.token, request),
+    };
+  } catch {
+    return { status: "unavailable", visitorId: null, visitorFirstSeenAt: null, setCookie: "" };
+  }
+}
+
+function visitorCookie(token, request) {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${VISITOR_COOKIE_NAME}=${token}; Path=/; Max-Age=${VISITOR_ID_TTL_SECONDS}; HttpOnly; SameSite=Lax${secure}`;
+}
+
+function attachVisitorCookie(response, visitor) {
+  if (visitor.setCookie) response.headers.set("set-cookie", visitor.setCookie);
+  return response;
+}
+
+function classifyUserAgent(value) {
+  const userAgent = String(value || "");
+  if (!userAgent) {
+    return { browserFamily: "unknown", osFamily: "unknown", deviceClass: "unknown" };
+  }
+  let browserFamily = "other";
+  if (/Edg\//i.test(userAgent) || /EdgA\//i.test(userAgent) || /EdgiOS\//i.test(userAgent) || /Edge\//i.test(userAgent)) browserFamily = "Edge";
+  else if (/Chrome\//i.test(userAgent) || /CriOS\//i.test(userAgent)) browserFamily = "Chrome";
+  else if (/Firefox\//i.test(userAgent) || /FxiOS\//i.test(userAgent)) browserFamily = "Firefox";
+  else if (/Safari\//i.test(userAgent)) browserFamily = "Safari";
+
+  let osFamily = "other";
+  if (/Windows NT/i.test(userAgent)) osFamily = "Windows";
+  else if (/Android/i.test(userAgent)) osFamily = "Android";
+  else if (/iPhone|iPad|iPod/i.test(userAgent)) osFamily = "iOS";
+  else if (/Mac OS X/i.test(userAgent)) osFamily = "macOS";
+  else if (/Linux/i.test(userAgent)) osFamily = "Linux";
+
+  let deviceClass = "desktop";
+  if (/iPad|Tablet/i.test(userAgent) || (/Android/i.test(userAgent) && !/Mobile/i.test(userAgent))) deviceClass = "tablet";
+  else if (/Mobile|iPhone|iPod/i.test(userAgent)) deviceClass = "mobile";
+  return { browserFamily, osFamily, deviceClass };
+}
+
+function likeFailureReason(error, phase) {
+  if (phase === "entry_id" && error instanceof URIError) return "invalid_entry_id_encoding";
+  if (error instanceof ValidationError) {
+    if (error.message === "entry not found") return "entry_not_found";
+    if (error.message === "unable to identify client") return "client_identity_unavailable";
+    return "validation_failed";
+  }
+  return `${phase}_failed`;
+}
+
+function likeErrorResponse(error) {
+  if (error instanceof ValidationError) return json({ error: error.message }, 400);
+  console.error(error);
+  return json({ error: "internal server error" }, 500);
+}
+
+function scheduleLikeAudit(ctx, env, event) {
+  const write = Promise.resolve()
+    .then(() => insertLikeAuditEvent(env, event))
+    .catch(() => console.error("like audit insert failed", {
+      eventId: event.eventId,
+      entryId: event.entryId,
+      reason: "insert_failed",
+    }));
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(write);
+  } else {
+    void write;
+  }
+}
+
+async function insertLikeAuditEvent(env, event) {
+  await env.DB.prepare(
+    `INSERT INTO like_audit_events
+      (event_id, occurred_at, entry_id, action, outcome, reason_code, count_delta,
+       visitor_id, visitor_first_seen_at, visitor_id_status, ip_hash, identity_version,
+       browser_family, os_family, device_class)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    event.eventId,
+    event.occurredAt,
+    event.entryId,
+    event.action,
+    event.outcome,
+    event.reasonCode,
+    event.countDelta,
+    event.visitorId,
+    event.visitorFirstSeenAt,
+    event.visitorIdStatus,
+    event.ipHash,
+    event.identityVersion,
+    event.browserFamily,
+    event.osFamily,
+    event.deviceClass
+  ).run();
+}
+
 async function readJson(request, allowEmpty = false) {
   const text = await request.text();
   if (!text && allowEmpty) return {};
@@ -1616,6 +1780,57 @@ function json(payload, status = 200, headers = {}) {
   });
 }
 
+async function visitorSigningKey(secret) {
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+}
+
+async function issueVisitorCredential(secret, options = {}) {
+  const firstSeenAt = Number.isSafeInteger(options.nowMs) ? options.nowMs : Date.now();
+  const payload = {
+    id: options.id || crypto.randomUUID(),
+    firstSeenAt,
+    exp: firstSeenAt + VISITOR_ID_TTL_MS,
+    version: VISITOR_ID_VERSION,
+  };
+  const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = new Uint8Array(await crypto.subtle.sign(
+    "HMAC",
+    await visitorSigningKey(secret),
+    new TextEncoder().encode(encodedPayload)
+  ));
+  return { token: `${encodedPayload}.${base64UrlEncode(signature)}`, payload };
+}
+
+async function verifyVisitorCredential(token, secret, nowMs = Date.now()) {
+  try {
+    const [encodedPayload, encodedSignature, ...rest] = String(token || "").split(".");
+    if (!encodedPayload || !encodedSignature || rest.length) return null;
+    const verified = await crypto.subtle.verify(
+      "HMAC",
+      await visitorSigningKey(secret),
+      base64UrlDecode(encodedSignature),
+      new TextEncoder().encode(encodedPayload)
+    );
+    if (!verified) return null;
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload)));
+    if (
+      !payload || typeof payload.id !== "string" || !payload.id ||
+      !Number.isSafeInteger(payload.firstSeenAt) || !Number.isSafeInteger(payload.exp) ||
+      payload.exp !== payload.firstSeenAt + VISITOR_ID_TTL_MS ||
+      payload.version !== VISITOR_ID_VERSION || nowMs >= payload.exp
+    ) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 function base64UrlEncode(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -1640,6 +1855,8 @@ export const __test = {
   buildRejectionText,
   buildTagCounts,
   cancelNotificationSubscription,
+  classifyUserAgent,
+  issueVisitorCredential,
   json,
   loadPublicEntries,
   markSubmissionReviewed,
@@ -1654,4 +1871,5 @@ export const __test = {
   sendRejectionNotice,
   sendNewEntryNotifications,
   unmarkSubmissionReviewed,
+  verifyVisitorCredential,
 };

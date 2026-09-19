@@ -5,6 +5,433 @@ import test from "node:test";
 import worker, { __test } from "../frontend/_worker.js";
 import '../frontend/assets/catalog-order.js';
 
+function createLikeEnv(options = {}) {
+  const state = {
+    entryExists: options.entryExists ?? true,
+    current: options.current ?? false,
+    likeCount: options.likeCount ?? (options.current ? 1 : 0),
+    mutationChanges: options.mutationChanges ?? 1,
+    audits: [],
+  };
+  const env = {
+    LIKE_HASH_SALT: 'dh_like_',
+    VISITOR_ID_SECRET: options.visitorSecret ?? 'visitor-test-secret',
+    DB: {
+      prepare(sql) {
+        return {
+          bind(...params) {
+            return {
+              async first() {
+                if (sql.includes('FROM entries WHERE')) return state.entryExists ? { id: 'dhm_test' } : null;
+                if (sql.includes('SELECT 1 FROM entry_likes')) return state.current ? { 1: 1 } : null;
+                if (sql.includes('SELECT COUNT(*) AS count')) {
+                  if (options.countFails) throw new Error('like count unavailable');
+                  return { count: state.likeCount };
+                }
+                throw new Error(`unexpected first query: ${sql}`);
+              },
+              async all() {
+                if (sql.includes('SELECT entry_id FROM entry_likes')) return { results: [] };
+                throw new Error(`unexpected all query: ${sql}`);
+              },
+              async run() {
+                if (sql.includes('like_audit_events')) {
+                  if (options.auditFails) throw new Error('audit unavailable');
+                  state.audits.push({ sql, params });
+                  return { meta: { changes: 1 } };
+                }
+                if (sql.startsWith('INSERT INTO entry_likes')) {
+                  if (state.mutationChanges) {
+                    state.current = true;
+                    state.likeCount += 1;
+                  }
+                  return { meta: { changes: state.mutationChanges } };
+                }
+                if (sql.startsWith('DELETE FROM entry_likes')) {
+                  if (state.mutationChanges) {
+                    state.current = false;
+                    state.likeCount -= 1;
+                  }
+                  return { meta: { changes: state.mutationChanges } };
+                }
+                throw new Error(`unexpected run query: ${sql}`);
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  return { env, state };
+}
+
+async function settleBackground(ctx) {
+  await Promise.all(ctx.promises);
+}
+
+test('visitor credentials are HMAC-signed and reject tampering', async () => {
+  const secret = 'visitor-test-secret';
+  const nowMs = 1_789_000_000_123;
+  const issued = await __test.issueVisitorCredential(secret, {
+    id: '5d665931-7b1c-4a02-9299-c537f97a00d8',
+    nowMs,
+  });
+
+  assert.deepEqual(
+    await __test.verifyVisitorCredential(issued.token, secret, nowMs + 1),
+    {
+      id: '5d665931-7b1c-4a02-9299-c537f97a00d8',
+      firstSeenAt: nowMs,
+      exp: nowMs + (90 * 24 * 60 * 60 * 1000),
+      version: 1,
+    }
+  );
+  assert.equal(
+    await __test.verifyVisitorCredential(`${issued.token}x`, secret, nowMs + 1),
+    null
+  );
+});
+
+test('like GET issues a fixed 90-day visitor credential without creating an audit event', async () => {
+  const { env, state } = createLikeEnv();
+  const response = await worker.fetch(
+    new Request('https://dhvault.top/api/public/likes', { headers: { 'cf-connecting-ip': '203.0.113.10' } }),
+    env,
+    { waitUntil() {} }
+  );
+
+  const cookie = response.headers.get('set-cookie');
+  assert.match(cookie, /^dh_market_visitor=/);
+  assert.match(cookie, /Path=\//);
+  assert.match(cookie, /Max-Age=7776000/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Lax/);
+  assert.match(cookie, /Secure/);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(state.audits, []);
+  const token = cookie.match(/^dh_market_visitor=([^;]+)/)[1];
+  const payload = await __test.verifyVisitorCredential(token, env.VISITOR_ID_SECRET, Date.now());
+  assert.equal(payload.exp - payload.firstSeenAt, 90 * 24 * 60 * 60 * 1000);
+  assert.equal(await __test.verifyVisitorCredential(token, env.VISITOR_ID_SECRET, payload.exp), null);
+});
+
+test('coarse user-agent classification never retains the raw user agent', () => {
+  assert.deepEqual(
+    __test.classifyUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Version/17.0 Mobile/15E148 Safari/604.1'),
+    { browserFamily: 'Safari', osFamily: 'iOS', deviceClass: 'mobile' }
+  );
+  assert.deepEqual(
+    __test.classifyUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36'),
+    { browserFamily: 'Chrome', osFamily: 'Windows', deviceClass: 'desktop' }
+  );
+  assert.deepEqual(__test.classifyUserAgent(''), {
+    browserFamily: 'unknown', osFamily: 'unknown', deviceClass: 'unknown',
+  });
+  assert.deepEqual(
+    __test.classifyUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 EdgiOS/120.0 Mobile/15E148 Safari/604.1'),
+    { browserFamily: 'Edge', osFamily: 'iOS', deviceClass: 'mobile' }
+  );
+  assert.deepEqual(
+    __test.classifyUserAgent('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/120.0.2210.89'),
+    { browserFamily: 'Edge', osFamily: 'Android', deviceClass: 'mobile' }
+  );
+});
+
+test('successful like writes a queued +1 privacy-safe audit event with millisecond timestamp', async () => {
+  const { env, state } = createLikeEnv();
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const response = await worker.fetch(
+    new Request('https://dhvault.top/api/public/like/dhm_test', {
+      method: 'POST',
+      headers: {
+        'cf-connecting-ip': '203.0.113.10',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/123.0 Safari/537.36',
+      },
+    }),
+    env,
+    ctx
+  );
+  await settleBackground(ctx);
+
+  assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+  assert.match(response.headers.get('set-cookie'), /^dh_market_visitor=/);
+  assert.equal(state.audits.length, 1);
+  const values = state.audits[0].params;
+  assert.match(values[0], /^[0-9a-f-]{36}$/);
+  assert.match(values[1], /^\d{4}-\d{2}-\d{2}T.*\.\d{3}Z$/);
+  assert.deepEqual(values.slice(2), [
+    'dhm_test', 'like', 'success', '', 1,
+    values[7], values[8], 'new', values[10],
+    'cf-ip-sha256-trunc16-v1+visitor-hmac-v1', 'Chrome', 'Windows', 'desktop',
+  ]);
+  assert.match(values[10], /^[a-f0-9]{16}$/);
+});
+
+test('unlike and no-change mutations capture their actual count deltas', async () => {
+  for (const [mutationChanges, expectedOutcome, expectedDelta] of [[1, 'success', -1], [0, 'no_change', 0]]) {
+    const { env, state } = createLikeEnv({ current: true, mutationChanges });
+    const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env, ctx
+    );
+    await settleBackground(ctx);
+    assert.equal(response.status, 200);
+    assert.equal(state.audits[0].params[3], 'unlike');
+    assert.equal(state.audits[0].params[4], expectedOutcome);
+    assert.equal(state.audits[0].params[6], expectedDelta);
+  }
+});
+
+test('a count read failure preserves the known mutation delta in its failed audit event', async () => {
+  const { env, state } = createLikeEnv({ countFails: true });
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const originalError = console.error;
+  console.error = () => {};
+  let response;
+  try {
+    response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env, ctx
+    );
+  } finally {
+    console.error = originalError;
+  }
+  await settleBackground(ctx);
+
+  assert.equal(response.status, 500);
+  assert.equal(state.audits.length, 1);
+  assert.deepEqual(state.audits[0].params.slice(3, 7), [
+    'like', 'failed', 'like_count_failed', 1,
+  ]);
+});
+
+test('malformed like identifiers are audited, set a visitor credential, and never purge the directory cache', async () => {
+  const { env, state } = createLikeEnv();
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const originalCaches = globalThis.caches;
+  const originalError = console.error;
+  let purges = 0;
+  globalThis.caches = { default: { async delete() { purges += 1; } } };
+  console.error = () => {};
+  try {
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/%E0%A4%A', { method: 'POST' }), env, ctx
+    );
+    await settleBackground(ctx);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: 'internal server error' });
+    assert.match(response.headers.get('set-cookie'), /^dh_market_visitor=/);
+  } finally {
+    globalThis.caches = originalCaches;
+    console.error = originalError;
+  }
+  assert.equal(purges, 0);
+  assert.deepEqual(state.audits[0].params.slice(2, 7), [
+    '%E0%A4%A', 'unknown', 'failed', 'invalid_entry_id_encoding', null,
+  ]);
+});
+
+test('a missing visitor secret never blocks likes and records unavailable identity fields', async () => {
+  const { env, state } = createLikeEnv({ visitorSecret: '' });
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const response = await worker.fetch(
+    new Request('https://dhvault.top/api/public/like/dhm_test', {
+      method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+    }), env, ctx
+  );
+  await settleBackground(ctx);
+
+  assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+  assert.equal(response.headers.get('set-cookie'), null);
+  assert.equal(state.audits[0].params[7], null);
+  assert.equal(state.audits[0].params[9], 'unavailable');
+});
+
+test('visitor signing failures degrade to an unavailable identity without blocking likes', async () => {
+  const { env, state } = createLikeEnv();
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const originalSign = crypto.subtle.sign;
+  crypto.subtle.sign = async () => { throw new Error('signing unavailable'); };
+  try {
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env, ctx
+    );
+    await settleBackground(ctx);
+    assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+    assert.equal(response.headers.get('set-cookie'), null);
+  } finally {
+    crypto.subtle.sign = originalSign;
+  }
+  assert.equal(state.audits[0].params[7], null);
+  assert.equal(state.audits[0].params[9], 'unavailable');
+});
+
+test('audit insert failures without ctx are caught without changing the vote response', async () => {
+  const { env } = createLikeEnv({ auditFails: true });
+  const captured = [];
+  const originalError = console.error;
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  console.error = (...args) => captured.push(args);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env
+    );
+    assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+    console.error = originalError;
+  }
+  assert.equal(unhandled.length, 0);
+  assert.equal(captured[0][0], 'like audit insert failed');
+});
+
+test('catalog endpoints stay unpersonalized when a visitor secret is configured', async () => {
+  const row = {
+    id: 'dhm_public', title: '资源', author: '作者', content_tags: '["模组"]', flavor_tags: '["西幻"]',
+    recommend_value: 1, like_count: 2, summary: '', cover_path: '', target_url: 'https://example.com',
+    created_at: '2026-01-01T00:00:00+00:00', updated_at: '2026-01-01T00:00:00+00:00',
+  };
+  const env = {
+    VISITOR_ID_SECRET: 'visitor-test-secret',
+    DB: { prepare() { return { async all() { return { results: [row] }; } }; } },
+  };
+  for (const [path, keys] of [
+    ['/api/public/bootstrap', ['entries', 'tags']],
+    ['/api/public/entries', ['entries']],
+    ['/api/public/tags', ['contentTags', 'flavorTags']],
+  ]) {
+    const response = await worker.fetch(new Request(`https://dhvault.top${path}`), env, { waitUntil() {} });
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.deepEqual(Object.keys(await response.json()).sort(), keys.sort());
+  }
+});
+
+test('valid visitor cookies are not refreshed while tampered cookies become new identities', async () => {
+  const secret = 'visitor-test-secret';
+  const issued = await __test.issueVisitorCredential(secret, {
+    id: '5d665931-7b1c-4a02-9299-c537f97a00d8', nowMs: Date.now(),
+  });
+  for (const [cookie, expectedStatus, shouldSetCookie] of [
+    [`dh_market_visitor=${issued.token}`, 'valid', false],
+    [`dh_market_visitor=${issued.token}x`, 'new', true],
+  ]) {
+    const { env, state } = createLikeEnv({ visitorSecret: secret });
+    const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { cookie, 'cf-connecting-ip': '203.0.113.10' },
+      }), env, ctx
+    );
+    await settleBackground(ctx);
+    assert.equal(response.headers.has('set-cookie'), shouldSetCookie);
+    assert.equal(state.audits[0].params[9], expectedStatus);
+  }
+});
+
+test('missing trusted IP creates a failed unknown audit event with a credential when configured', async () => {
+  const { env, state } = createLikeEnv();
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const response = await worker.fetch(
+    new Request('https://dhvault.top/api/public/like/dhm_test', { method: 'POST' }), env, ctx
+  );
+  await settleBackground(ctx);
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'unable to identify client' });
+  assert.match(response.headers.get('set-cookie'), /^dh_market_visitor=/);
+  assert.deepEqual(state.audits[0].params.slice(3, 11), [
+    'unknown', 'failed', 'client_identity_unavailable', null,
+    state.audits[0].params[7], state.audits[0].params[8], 'new', null,
+  ]);
+});
+
+test('failed likes audit unknown state with no IP hash and keep the public 500 response shape', async () => {
+  const audits = [];
+  const env = {
+    VISITOR_ID_SECRET: 'visitor-test-secret',
+    DB: {
+      prepare(sql) {
+        return {
+          bind(...params) {
+            return {
+              async first() { throw new Error('entry lookup unavailable'); },
+              async run() {
+                if (sql.includes('like_audit_events')) {
+                  audits.push(params);
+                  return { meta: { changes: 1 } };
+                }
+                throw new Error('unexpected mutation');
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const originalError = console.error;
+  console.error = () => {};
+  let response;
+  try {
+    response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', { method: 'POST' }), env, ctx
+    );
+  } finally {
+    console.error = originalError;
+  }
+  await settleBackground(ctx);
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: 'internal server error' });
+  assert.match(response.headers.get('set-cookie'), /^dh_market_visitor=/);
+  assert.equal(audits[0][3], 'unknown');
+  assert.equal(audits[0][4], 'failed');
+  assert.equal(audits[0][6], null);
+  assert.equal(audits[0][10], null);
+});
+
+test('an audit write failure is contained and does not change a successful vote response', async () => {
+  const { env } = createLikeEnv({ auditFails: true });
+  const ctx = { promises: [], waitUntil(promise) { this.promises.push(promise); } };
+  const captured = [];
+  const originalError = console.error;
+  console.error = (...args) => captured.push(args);
+  try {
+    const response = await worker.fetch(
+      new Request('https://dhvault.top/api/public/like/dhm_test', {
+        method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.10' },
+      }), env, ctx
+    );
+    await settleBackground(ctx);
+    assert.deepEqual(await response.json(), { liked: true, likeCount: 1 });
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0][0], 'like audit insert failed');
+  assert.deepEqual(Object.keys(captured[0][1]).sort(), ['entryId', 'eventId', 'reason']);
+});
+
+test('like audit migration preserves deleted-entry history and supports audit queries', async () => {
+  const sql = await readFile(new URL('../migrations/0006_like_audit_events.sql', import.meta.url), 'utf8');
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS like_audit_events/);
+  assert.doesNotMatch(sql, /FOREIGN KEY.*entries/i);
+  assert.match(sql, /CHECK \(action IN \('like', 'unlike', 'unknown'\)\)/);
+  assert.match(sql, /CHECK \(count_delta IS NULL OR count_delta IN \(-1, 0, 1\)\)/);
+  for (const index of ['occurred_at', 'entry_id, occurred_at', 'visitor_id, occurred_at', 'ip_hash, occurred_at']) {
+    assert.match(sql, new RegExp(`ON like_audit_events\\(${index.replace(/[()]/g, '\\$&')}\\)`));
+  }
+});
+
 test('like identity ignores forwarded headers and preserves existing trusted-IP hashes', async () => {
   const hashes = [];
   const env = { DB: { prepare() { return { bind(hash) {
@@ -24,6 +451,9 @@ test('like identity ignores forwarded headers and preserves existing trusted-IP 
 
 test('like endpoints reject missing trusted IP without reading or writing likes', async () => {
   const env = { DB: { prepare(sql) {
+    if (sql.includes('like_audit_events')) {
+      return { bind() { return { async run() { return { meta: { changes: 1 } }; } }; } };
+    }
     // 允许原有的条目存在性检查，但不允许访问点赞记录。
     assert.ok(!sql.includes('entry_likes'));
     return { bind() { return { async first() { return { id: 'dhm_test' }; } }; } };
@@ -412,6 +842,7 @@ test("public JSON responses can override no-store with cacheable catalog headers
 
   assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
   assert.equal(response.headers.get("cache-control"), "public, max-age=60, stale-while-revalidate=300");
+  assert.equal(response.headers.get("set-cookie"), null);
 });
 
 test("loadPublicEntries reads aggregated like counts and keeps zero-like entries", async () => {

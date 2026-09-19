@@ -1084,6 +1084,13 @@
       transition: color var(--transition-fast);
     }
     .site-footer a:hover { color: var(--gold-dim); }
+    .site-footer .privacy-notice {
+      max-width: 760px;
+      margin: 10px auto 0;
+      font-family: var(--font-body);
+      letter-spacing: normal;
+      line-height: 1.7;
+    }
 
     /* ══════════════════════════════════════════
        Scrollbar
@@ -1644,7 +1651,8 @@
     </div>
 
     <footer class="site-footer">
-      宏伟宝库 · The Great Vault &mdash; 仅做目录索引，点击卡片跳转至外部资源
+      <p>宏伟宝库 · The Great Vault &mdash; 仅做目录索引，点击卡片跳转至外部资源</p>
+      <p class="privacy-notice">点赞审计仅用于排查异常：记录随机浏览器凭据、哈希 IP 与粗略设备信息，审计保留阈值为 90 天，实际删除取决于定期维护；不保存原始 IP 或完整 UA，不会自动处罚。清除 Cookie 会更换该标识。</p>
     </footer>
   </div>
 

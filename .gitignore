@@ -17,6 +17,7 @@ data/runtime/covers/*
 !data/runtime/covers/.gitkeep
 data/runtime/secrets/*
 !data/runtime/secrets/.gitkeep
+data/runtime/audit-exports/
 data/imports/
 !data/imports/.gitkeep
 data/backups/
