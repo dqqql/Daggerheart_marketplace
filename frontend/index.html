@@ -992,15 +992,6 @@
       padding: 14px 24px;
       border-top: 1px solid var(--divider);
     }
-    #submissionNoticeDialog .submission-notice-check {
-      display: inline-flex; align-items: center; gap: 8px;
-      font-size: 13px; color: var(--text-secondary);
-      cursor: pointer; user-select: none;
-    }
-    #submissionNoticeDialog .submission-notice-check input[type="checkbox"] {
-      width: 16px; height: 16px; flex-shrink: 0;
-      accent-color: var(--gold); cursor: pointer;
-    }
     #submissionNoticeDialog .submission-notice-actions {
       display: flex; gap: 10px; margin-left: auto;
     }
@@ -1722,10 +1713,6 @@
       <p class="submission-notice-footnote">本公告自 2026年09月18日 起生效。</p>
     </div>
     <div class="submission-notice-footer">
-      <label class="submission-notice-check">
-        <input type="checkbox" id="submissionNoticeDismiss">
-        <span>不再显示（当前浏览器）</span>
-      </label>
       <div class="submission-notice-actions">
         <button class="btn btn--ghost" id="submissionNoticeCancel" type="button">取消</button>
         <button class="btn btn--gold" id="submissionNoticeContinue" type="button">继续投稿</button>
@@ -2345,7 +2332,6 @@
     const submissionNoticeClose = document.getElementById('submissionNoticeClose');
     const submissionNoticeCancel = document.getElementById('submissionNoticeCancel');
     const submissionNoticeContinue = document.getElementById('submissionNoticeContinue');
-    const submissionNoticeDismiss = document.getElementById('submissionNoticeDismiss');
     const submitNoticeReopenBtn = document.getElementById('submitNoticeReopenBtn');
 
     const subscribeBtn = document.getElementById('subscribeBtn');
@@ -2408,24 +2394,11 @@
     }
 
     // ── 投稿说明（原生 dialog，独立于 .modal-overlay）──
-    const SUBMISSION_NOTICE_KEY = 'dhm-submission-notice:2026-09-18-v1';
     let submissionNoticeReturnFocus = null;
     let submissionNoticeSuppressFocusRestore = false;
 
-    function hasSeenSubmissionNotice() {
-      try { return localStorage.getItem(SUBMISSION_NOTICE_KEY) === '1'; } catch { return false; }
-    }
-
-    function rememberSubmissionNoticeChoice(checked) {
-      try {
-        if (checked) localStorage.setItem(SUBMISSION_NOTICE_KEY, '1');
-        else localStorage.removeItem(SUBMISSION_NOTICE_KEY);
-      } catch { /* 存储不可用时静默忽略，不阻塞继续投稿 */ }
-    }
-
     function openSubmissionNotice(fromForm) {
       submissionNoticeReturnFocus = fromForm ? submitNoticeReopenBtn : submitBtn;
-      submissionNoticeDismiss.checked = false; // 默认不勾，取消不记忆
       document.body.style.overflow = 'hidden';
       if (submissionNoticeDialog.open) return;
       submissionNoticeDialog.showModal();
@@ -2462,7 +2435,6 @@
     }
 
     function continueFromSubmissionNotice() {
-      rememberSubmissionNoticeChoice(submissionNoticeDismiss.checked);
       submissionNoticeSuppressFocusRestore = true; // 交由表单接管焦点
       closeSubmissionNotice();
       openSubmitModal();
@@ -2474,14 +2446,9 @@
     submissionNoticeContinue.addEventListener('click', continueFromSubmissionNotice);
     submitNoticeReopenBtn.addEventListener('click', function () { openSubmissionNotice(true); });
 
-    // 首次投稿先看说明；选择“不再显示”后直接进入表单
+    // 每次投稿都先看说明，不再读取浏览器中的历史免提醒记录。
     submitBtn.addEventListener('click', function () {
-      if (hasSeenSubmissionNotice()) {
-        openSubmitModal();
-        focusSubmitFormFirstField();
-      } else {
-        openSubmissionNotice(false);
-      }
+      openSubmissionNotice(false);
     });
     submitClose.addEventListener('click', closeSubmitModal);
     submitCancel.addEventListener('click', closeSubmitModal);

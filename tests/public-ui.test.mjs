@@ -8,7 +8,6 @@ import path from 'node:path';
 // 可通过 PLAYWRIGHT_MODULE 使用本机已有的 Playwright，无需安装全局依赖。
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = fileURLToPath(new URL('../frontend/', import.meta.url));
-const key = 'dhm-submission-notice:2026-09-18-v1';
 const tags = ['模组', '职业', '敌人', '扩展规则', '战役框架'];
 const entries = tags.map((tag, index) => ({
   id: `normal-${index}`, title: `普通${tag}`, author: '测试', contentTags: [tag],
@@ -36,7 +35,11 @@ test('public catalog exclusions and submission notice browser workflow', async (
   const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || undefined });
   t.after(() => browser.close());
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  await context.addInitScript(() => localStorage.setItem('dhm-submission-notice:draft-v1', '1'));
+  // 曾勾选“不再显示”的浏览器也必须每次先看到说明。
+  await context.addInitScript(() => {
+    localStorage.setItem('dhm-submission-notice:draft-v1', '1');
+    localStorage.setItem('dhm-submission-notice:2026-09-18-v1', '1');
+  });
   let liked = false;
   await context.route('**/api/**', route => {
     const url = new URL(route.request().url());
@@ -58,8 +61,10 @@ test('public catalog exclusions and submission notice browser workflow', async (
   await page.locator('#sec-pbdh').waitFor();
   const tagLines = (await readFile(new URL('../docs/tag-descriptions-draft.md', import.meta.url), 'utf8')).trim().split(/\r?\n/);
   const definitions = await page.evaluate(() => ContentTags.definitions);
-  assert.deepEqual(definitions, tagLines.filter((_, index) => index % 2 === 0)
-    .map((tag, index) => ({ tag, description: tagLines[index * 2 + 1] })));
+  await t.test('content tag descriptions match the approved document', () => {
+    assert.deepEqual(definitions, tagLines.filter((_, index) => index % 2 === 0)
+      .map((tag, index) => ({ tag, description: tagLines[index * 2 + 1] })));
+  });
   const approvedNotice = (await readFile(new URL('../docs/submission-guidelines-draft.md', import.meta.url), 'utf8'))
     .split(/\r?\n/).map(line => line.replace(/^(# |\- )/, '').trim()).filter(Boolean);
   const noticeText = await page.locator('.submission-notice-body').textContent();
@@ -94,77 +99,76 @@ test('public catalog exclusions and submission notice browser workflow', async (
   await page.waitForFunction(() => document.querySelectorAll('#cardGrid .card').length === 2);
   await page.locator('#searchInput').fill('');
 
-  const openNotice = () => page.locator('#submitEntryBtn').click();
-  const notice = page.locator('#submissionNoticeDialog');
-  await openNotice();
-  assert.ok(await notice.isVisible());
-  await page.locator('#submissionNoticeDismiss').check();
-  await page.locator('#submissionNoticeCancel').click();
-  await notice.waitFor({ state: 'hidden' });
-  assert.equal(await page.evaluate(key => localStorage.getItem(key), key), null);
-  assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), false);
-  await openNotice();
-  assert.equal(await page.locator('#submissionNoticeDismiss').isChecked(), false);
-  await page.keyboard.press('Escape');
-  await notice.waitFor({ state: 'hidden' });
-  await page.waitForFunction(() => document.activeElement.id === 'submitEntryBtn');
-
-  for (const width of [1440, 390, 320]) {
-    await page.setViewportSize({ width, height: 800 });
+  await t.test('submission notice appears on every submission', async () => {
+    const openNotice = () => page.locator('#submitEntryBtn').click();
+    const notice = page.locator('#submissionNoticeDialog');
     await openNotice();
-    const layout = await notice.evaluate(el => {
-      const rect = el.getBoundingClientRect();
-      const body = el.querySelector('.submission-notice-body');
-      const footer = el.querySelector('.submission-notice-footer').getBoundingClientRect();
-      return { left: rect.left, right: rect.right, bottom: rect.bottom, width: innerWidth,
-        height: innerHeight, overflow: body.scrollWidth > body.clientWidth,
-        footerTop: footer.top, bodyBottom: body.getBoundingClientRect().bottom };
-    });
-    assert.ok(layout.left >= 15 && layout.right <= layout.width - 15);
-    assert.ok(layout.bottom <= layout.height && layout.footerTop >= layout.bodyBottom - 1);
-    assert.equal(layout.overflow, false);
-    if (process.env.UI_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, `submission-notice-${width}.png`) });
+    assert.ok(await notice.isVisible(), '旧版不再显示记录不能跳过投稿说明');
+    assert.equal(await notice.locator('input[type="checkbox"]').count(), 0);
     await page.locator('#submissionNoticeCancel').click();
     await notice.waitFor({ state: 'hidden' });
-  }
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await openNotice();
-  await page.locator('#submissionNoticeDismiss').check();
-  await page.locator('#submissionNoticeContinue').click();
-  await notice.waitFor({ state: 'hidden' });
-  assert.equal(await page.evaluate(key => localStorage.getItem(key), key), '1');
-  const firstInput = page.locator('#submitModalBody [data-field="title"]');
-  await firstInput.fill('保留测试内容');
-  await page.locator('#submitNoticeReopenBtn').click();
-  await page.keyboard.press('Escape');
-  await notice.waitFor({ state: 'hidden' });
-  assert.equal(await firstInput.inputValue(), '保留测试内容');
-  assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), true);
-  await page.waitForFunction(() => document.activeElement.id === 'submitNoticeReopenBtn');
-  await page.locator('#submitNoticeReopenBtn').click();
-  await page.locator('#submissionNoticeContinue').click();
-  await notice.waitFor({ state: 'hidden' });
-  assert.equal(await firstInput.inputValue(), '保留测试内容');
-  assert.equal(await page.evaluate(key => localStorage.getItem(key), key), null);
-  await page.locator('#submitModalCancelBtn').click();
-  await openNotice();
-  await page.locator('#submissionNoticeDismiss').check();
-  await page.locator('#submissionNoticeContinue').click();
-  await page.reload();
-  await openNotice();
-  assert.equal(await notice.isVisible(), false);
-  assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), true);
+    assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), false);
+    await openNotice();
+    assert.ok(await notice.isVisible());
+    await page.keyboard.press('Escape');
+    await notice.waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => document.activeElement.id === 'submitEntryBtn');
 
-  await page.addInitScript(() => {
-    Storage.prototype.getItem = () => { throw new Error('blocked storage'); };
-    Storage.prototype.setItem = () => { throw new Error('blocked storage'); };
-    Storage.prototype.removeItem = () => { throw new Error('blocked storage'); };
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 800 });
+      await openNotice();
+      const layout = await notice.evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        const body = el.querySelector('.submission-notice-body');
+        const footer = el.querySelector('.submission-notice-footer').getBoundingClientRect();
+        return { left: rect.left, right: rect.right, bottom: rect.bottom, width: innerWidth,
+          height: innerHeight, overflow: body.scrollWidth > body.clientWidth,
+          footerTop: footer.top, bodyBottom: body.getBoundingClientRect().bottom };
+      });
+      assert.ok(layout.left >= 15 && layout.right <= layout.width - 15);
+      assert.ok(layout.bottom <= layout.height && layout.footerTop >= layout.bodyBottom - 1);
+      assert.equal(layout.overflow, false);
+      if (process.env.UI_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, `submission-notice-${width}.png`) });
+      await page.locator('#submissionNoticeCancel').click();
+      await notice.waitFor({ state: 'hidden' });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openNotice();
+    await page.locator('#submissionNoticeContinue').click();
+    await notice.waitFor({ state: 'hidden' });
+    const firstInput = page.locator('#submitModalBody [data-field="title"]');
+    await page.waitForFunction(() => document.activeElement.dataset.field === 'title');
+    await firstInput.fill('保留测试内容');
+    await page.locator('#submitNoticeReopenBtn').click();
+    await page.keyboard.press('Escape');
+    await notice.waitFor({ state: 'hidden' });
+    assert.equal(await firstInput.inputValue(), '保留测试内容');
+    assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), true);
+    await page.waitForFunction(() => document.activeElement.id === 'submitNoticeReopenBtn');
+    await page.locator('#submitNoticeReopenBtn').click();
+    await page.locator('#submissionNoticeContinue').click();
+    await notice.waitFor({ state: 'hidden' });
+    assert.equal(await firstInput.inputValue(), '保留测试内容');
+    await page.locator('#submitModalCancelBtn').click();
+    await openNotice();
+    assert.ok(await notice.isVisible(), '同一页面再次投稿仍显示说明');
+    await page.locator('#submissionNoticeContinue').click();
+    await page.reload();
+    await openNotice();
+    assert.ok(await notice.isVisible(), '刷新页面后投稿仍显示说明');
+    assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), false);
+
+    await page.addInitScript(() => {
+      Storage.prototype.getItem = () => { throw new Error('blocked storage'); };
+      Storage.prototype.setItem = () => { throw new Error('blocked storage'); };
+      Storage.prototype.removeItem = () => { throw new Error('blocked storage'); };
+    });
+    await page.reload();
+    await openNotice();
+    assert.ok(await notice.isVisible());
+    await page.locator('#submissionNoticeContinue').click();
+    await notice.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), true);
+    assert.deepEqual(errors, []);
   });
-  await page.reload();
-  await openNotice();
-  await page.locator('#submissionNoticeDismiss').check();
-  await page.locator('#submissionNoticeContinue').click();
-  await notice.waitFor({ state: 'hidden' });
-  assert.equal(await page.locator('#submitModalOverlay').evaluate(el => el.classList.contains('visible')), true);
-  assert.deepEqual(errors, []);
 });
